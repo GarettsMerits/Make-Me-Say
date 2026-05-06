@@ -1,0 +1,75 @@
+-- dont-make-me-say Database Schema
+-- Created: August 2025
+-- Language: MySQL
+
+CREATE DATABASE IF NOT EXISTS dont_make_me_say
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+USE dont_make_me_say;
+
+-- Leaderboard table for storing user scores
+CREATE TABLE IF NOT EXISTS leaderboard (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    player_name VARCHAR(255) NOT NULL,
+    token_count INT NOT NULL,
+    target_word VARCHAR(100) NOT NULL,
+    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_id VARCHAR(255),
+    
+    INDEX idx_token_count (token_count),
+    INDEX idx_completed_at (completed_at),
+    INDEX idx_target_word (target_word)
+) ENGINE=InnoDB;
+
+-- Game sessions table for tracking active games
+CREATE TABLE IF NOT EXISTS game_sessions (
+    id VARCHAR(255) PRIMARY KEY,
+    target_word VARCHAR(100) NOT NULL,
+    current_tokens INT DEFAULT 0,
+    messages JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    completed BOOLEAN DEFAULT FALSE,
+    score_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+    
+    INDEX idx_created_at (created_at),
+    INDEX idx_last_activity (last_activity),
+    INDEX idx_completed (completed)
+) ENGINE=InnoDB;
+
+-- Target words table for managing available words
+CREATE TABLE IF NOT EXISTS target_words (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    word VARCHAR(100) NOT NULL UNIQUE,
+    difficulty_level ENUM('easy', 'medium', 'hard') DEFAULT 'medium',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_difficulty (difficulty_level),
+    INDEX idx_active (is_active)
+) ENGINE=InnoDB;
+
+-- Insert some initial target words
+INSERT INTO target_words (word, difficulty_level) VALUES
+('butterfly', 'easy'),
+('happiness', 'easy'),
+('adventure', 'easy'),
+('mysterious', 'medium'),
+('philosophy', 'medium'),
+('extraordinary', 'medium'),
+('serendipity', 'hard'),
+('quintessential', 'hard'),
+('ephemeral', 'hard');
+
+-- API usage tracking for rate limiting and analytics
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ip_address VARCHAR(45),
+    endpoint VARCHAR(255),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_agent TEXT,
+    
+    INDEX idx_ip_timestamp (ip_address, timestamp),
+    INDEX idx_endpoint (endpoint)
+) ENGINE=InnoDB;
