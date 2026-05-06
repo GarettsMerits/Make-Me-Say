@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/*
+ * ─── Shared Component Classes ────────────────────────────────────────────────
+ *
+ * Defined here with @layer components so they:
+ * - Work in className strings exactly like regular Tailwind classes
+ * - Can still be overridden by utility classes (e.g. adding extra padding)
+ * - Are tree-shaken by Tailwind if not used
+ * - Respect the dark: prefix on all their inner classes automatically
+ *
+ * NAMING CONVENTION:
+ * - card-*    : surface/container styles
+ * - text-*    : typography variants (prefixed with "app-" to avoid Tailwind conflicts)
+ * - btn-*     : button variants
+ * - input-*   : form input styles
+ */
+
+@layer components {
+
+  /* ── Cards / Surfaces ────────────────────────────────────────────────────── */
+
+  /* Primary content card — used on About, How To Play, Leaderboard pages */
+  .card {
+    @apply bg-layer-2-light dark:bg-layer-2-dark rounded-lg p-6 shadow-sm;
+  }
+
+  /* Nested card — sits inside a .card for secondary grouping */
+  .card-inner {
+    @apply bg-layer-3-light dark:bg-layer-3-dark rounded-lg p-4;
+  }
+
+  /* Sticky top/bottom bars (instruction prompt, input box) */
+  .bar-top {
+    @apply sticky top-0 z-40 bg-layer-1-light dark:bg-layer-1-dark border-b border-gray-300 dark:border-gray-700;
+  }
+
+  .bar-bottom {
+    @apply sticky bottom-0 z-40 bg-layer-1-light dark:bg-layer-1-dark border-t border-gray-200 dark:border-gray-800;
+  }
+
+  /* ── Typography ──────────────────────────────────────────────────────────── */
+
+  /* Large page title (e.g. "🏆 Leaderboard") */
+  .app-heading {
+    @apply text-2xl font-semibold text-gray-800 dark:text-gray-100;
+  }
+
+  /* Section heading within a page (h3 level) */
+  .app-subheading {
+    @apply text-xl font-medium text-gray-800 dark:text-gray-200;
+  }
+
+  /* Card-level label or sub-section heading (h4 level) */
+  .app-label {
+    @apply font-medium text-gray-800 dark:text-gray-100;
+  }
+
+  /* Standard body / descriptive text */
+  .app-body {
+    @apply text-gray-600 dark:text-gray-300;
+  }
+
+  /* De-emphasised / caption text */
+  .app-muted {
+    @apply text-gray-500 dark:text-gray-400;
+  }
+
+  /* Slightly brighter muted text (e.g. stat values in session bar) */
+  .app-muted-bright {
+    @apply text-gray-800 dark:text-gray-200;
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+  /* Shared base — apply alongside a colour variant below */
+  .btn {
+    @apply rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Ghost / icon button (dark mode toggle, nav items) */
+  .btn-ghost {
+    @apply btn p-2 text-gray-700 dark:text-gray-300
+           hover:bg-layer-3-light/50 dark:hover:bg-layer-3-dark/50;
+  }
+
+  /* Primary action (submit message) */
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  /* Secondary / neutral action (reset) */
+  .btn-secondary {
+    @apply btn bg-gray-400 dark:bg-gray-600 text-white
+           hover:bg-gray-500 dark:hover:bg-gray-500;
+  }
+
+  /* Danger action (logout) */
+  .btn-danger {
+    @apply btn p-2 text-red-600 dark:text-red-500
+           hover:bg-layer-3-light/50 dark:hover:bg-layer-3-dark/50;
+  }
+
+  /* ── Form Inputs ─────────────────────────────────────────────────────────── */
+
+  .app-textarea {
+    @apply w-full px-4 py-3 bg-layer-3-light dark:bg-layer-3-dark
+           text-gray-800 dark:text-gray-100
+           rounded-lg border border-gray-300 dark:border-gray-600
+           focus:outline-none focus:ring-2 focus:ring-blue-500
+           resize-none disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+}
+
+/* ─── Win sequence animations ─────────────────────────────────────────────── */
+/* (colour-pulse animation is driven entirely by Framer Motion in WinningWord.tsx) */
