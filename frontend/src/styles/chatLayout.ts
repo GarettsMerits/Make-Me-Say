@@ -90,16 +90,19 @@ export const INPUT_BOX = {
 } as const;
 
 /**
- * The bottom bar (MessageInputBox / VictoryBar / NameEntryBar) always reserves
- * this minimum height so the chat scroll area never jumps when the bar
- * transitions between its three states.
+ * The bottom bar inner container is always exactly this tall so the chat
+ * scroll area never jumps when the bar transitions between states.
  *
- * The value is the SessionStats row (~28px) + gap (8px) + textarea (120px) +
- * vertical padding (2 × 16px) = 188px.  Round up to 192 for breathing room.
+ * Derivation (matching the normal input layout):
+ *   SessionStats row  = ~28 px  (text-sm line + mb-2 gap)
+ *   Textarea          = 120 px  (INPUT_BOX.textareaHeight)
+ *   py-4 padding      =  32 px  (2 × 16 px)
+ *   ─────────────────────────────
+ *   Total             = 180 px
  */
 export const BAR_BOTTOM = {
-  minHeight: 192,
-  minHeightPx: '192px',
+  height: 180,
+  heightPx: '180px',
 } as const;
 
 /**

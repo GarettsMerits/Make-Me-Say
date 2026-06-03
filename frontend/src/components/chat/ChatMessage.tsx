@@ -110,7 +110,7 @@ const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ message, winningWo
             // min-w-0 forces respect of grid column constraints
             ? 'justify-self-end bg-blue-600 text-white rounded-br-sm max-w-full'
             // LLM message styling - in left column
-            : 'bg-layer-3-light dark:bg-layer-3-dark text-gray-800 dark:text-gray-100 rounded-bl-sm max-w-[75%]'
+            : 'bg-layer-3-light dark:bg-layer-3-dark text-gray-800 dark:text-gray-100 rounded-bl-sm max-w-full'
         }`}
       >
 

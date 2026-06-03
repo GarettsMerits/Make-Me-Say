@@ -2,11 +2,11 @@
  * LLM service — public API.
  *
  * Thin entry point that wires together config, helpers, and the DeepSeek HTTP
- * client.  All cross-cutting utilities live in llm.utils.ts; connection
- * parameters live in config/llm.config.ts.
+ * client.  All cross-cutting utilities live in llm.helpers.ts; connection
+ * parameters live in config/llm.ts.
  */
 import axios from 'axios';
-import { LLM_CONFIG } from '../config/llm.config.js';
+import { LLM_CONFIG } from '../config/llm.js';
 import {
   buildSystemPrompt,
   buildAuthHeaders,
@@ -14,7 +14,7 @@ import {
   countTokens,
   containsTargetWord,
   freeEncoder,
-} from './llm.utils.js';
+} from './llm.helpers.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 

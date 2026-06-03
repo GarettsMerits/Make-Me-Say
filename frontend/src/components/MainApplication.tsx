@@ -53,7 +53,7 @@ const MainApplication: React.FC<MainApplicationProps> = ({ onLogout }) => {
       {/* Content area with top margin to account for fixed ribbon */}
       <div className="relative overflow-hidden min-h-screen">
         <div className="h-16"></div> {/* Spacer for fixed ribbon */}
-        <AnimatePresence mode="sync" custom={direction}>
+        <AnimatePresence mode="wait" custom={direction}>
           <motion.div
             key={currentPage}
             custom={direction}

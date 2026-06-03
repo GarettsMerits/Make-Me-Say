@@ -11,7 +11,6 @@
  */
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { BAR_BOTTOM } from '../../../styles/chatLayout';
 import { formatTokenCount } from '../../../utils/tokenCounter';
 import { rankLabel, rankColourClass } from '../../../utils/rankHelpers';
 
@@ -56,13 +55,11 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
 
   return (
     <motion.div
-      key="name-entry"
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.25 }}
-      className="space-y-3 flex flex-col justify-center"
-      style={{ minHeight: BAR_BOTTOM.minHeightPx }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="h-full space-y-3 flex flex-col justify-center"
     >
       {/* Score recap row */}
       <div className="text-sm app-body">
@@ -110,8 +107,7 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
           type="button"
           onClick={handleConfirm}
           disabled={isSubmitting || !name.trim()}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
+          whileTap={!isSubmitting && !!name.trim() ? { scale: 0.97 } : {}}
           className="btn btn-primary flex items-center justify-center text-lg font-medium"
           style={{ aspectRatio: '1', alignSelf: 'stretch' }}
           title="Submit score"
@@ -123,8 +119,7 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
           type="button"
           onClick={onCancel}
           disabled={isSubmitting}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          whileTap={!isSubmitting ? { scale: 0.97 } : {}}
           className="btn btn-secondary flex items-center justify-center text-lg"
           style={{ aspectRatio: '1', alignSelf: 'stretch' }}
           title="Cancel"

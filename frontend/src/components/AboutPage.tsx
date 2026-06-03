@@ -4,17 +4,10 @@
  * "Don't Make Me Say" game and its implementation.
  */
 import React from 'react';
-import { motion } from 'framer-motion';
 
 const AboutPage: React.FC = () => {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      transition={{ duration: 0.3 }}
-      className="h-full overflow-y-auto"
-    >
+    <div className="h-full overflow-y-auto">
       {/* Layer 2 container - first level bubble */}
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="card">
@@ -91,7 +84,7 @@ const AboutPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };
 

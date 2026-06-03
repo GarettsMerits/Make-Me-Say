@@ -1,39 +1,35 @@
-/**
- * Game Session Store
- * 
- * Manages the state of an active game session including:
- * - Token counting and limits
- * - Chat messages
- * - Target word the user is trying to make the LLM say
- * - Loading states for async operations
- */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ChatMessage } from './types';
+import type { Difficulty } from '../utils/api/types';
 
 interface GameState {
   // ===== STATE =====
   sessionTokens: number;            // Tokens count for current session
   targetWord: string;               // Word the user is trying to make LLM say
   targetWordId: number | null;      // DB primary key of targetWord (used on first chat message)
+  difficulty: Difficulty | null;    // Selected difficulty level (null = not yet chosen)
   messages: ChatMessage[];          // Chat conversation history
   isLoading: boolean;               // Loading state for async operations (LLM calls)
   sessionId: string | null;         // Backend session ID returned after first chat message
   isWon: boolean;                   // Whether the player has won the current session
   wonRank: number | null;           // Leaderboard rank player would achieve upon winning
+  victoryMessage: string | null;    // The LLM message that contained the target word
   
   // ===== ACTIONS =====
-  addSessionTokens: (count: number) => void;              // Add tokens to session
-  setTargetWord: (word: string, id: number) => void;      // Set the target word and its DB id
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;  // Add chat message
-  updateLastMessage: (chunk: string) => void;                            // Append text to last LLM message
-  setIsLoading: (loading: boolean) => void;               // Set loading state
-  setSessionId: (id: string) => void;                     // Store backend session ID
-  setIsWon: (won: boolean) => void;                       // Mark session as won
-  setWonRank: (rank: number) => void;                     // Store leaderboard rank for the win
-  scoreSubmitted: boolean;                                // True once the player has submitted their score
-  setScoreSubmitted: (submitted: boolean) => void;        // Mark score as submitted
-  resetSession: () => void;                               // Clear session data
+  addSessionTokens: (count: number) => void;
+  setTargetWord: (word: string, id: number) => void;
+  setDifficulty: (difficulty: Difficulty) => void;
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  updateLastMessage: (chunk: string) => void;
+  setIsLoading: (loading: boolean) => void;
+  setSessionId: (id: string) => void;
+  setIsWon: (won: boolean) => void;
+  setWonRank: (rank: number) => void;
+  setVictoryMessage: (message: string | null) => void;
+  scoreSubmitted: boolean;
+  setScoreSubmitted: (submitted: boolean) => void;
+  resetSession: () => void;
 }
 
 /**
@@ -51,11 +47,13 @@ export const useGameStore = create<GameState>()(
       sessionTokens: 0,
       targetWord: '',
       targetWordId: null,
+      difficulty: null,
       messages: [],
       isLoading: false,
       sessionId: null,
       isWon: false,
       wonRank: null,
+      victoryMessage: null,
       scoreSubmitted: false,
       
       // ===== ACTION IMPLEMENTATIONS =====
@@ -63,12 +61,14 @@ export const useGameStore = create<GameState>()(
         sessionTokens: state.sessionTokens + count 
       })),
       
-      /**
-       * Set the target word and its database primary key for this game session.
-       * The id is used on the first chat request so the server can verify the word
-       * without trusting the client-supplied string.
-       */
+      /** Set the target word and its database primary key for this game session. */
       setTargetWord: (word, id) => set({ targetWord: word, targetWordId: id }),
+
+      /** Set the chosen difficulty for this game. */
+      setDifficulty: (difficulty) => set({ difficulty }),
+
+      /** Store the LLM message that contained the winning target word. */
+      setVictoryMessage: (message) => set({ victoryMessage: message }),
       
       /**
        * IMMUTABILITY PATTERN:
@@ -138,11 +138,13 @@ export const useGameStore = create<GameState>()(
         sessionTokens: 0,
         targetWord: '',
         targetWordId: null,
+        difficulty: null,
         messages: [],
         isLoading: false,
         sessionId: null,
         isWon: false,
         wonRank: null,
+        victoryMessage: null,
         scoreSubmitted: false,
       }),
     }),
@@ -160,9 +162,10 @@ export const useGameStore = create<GameState>()(
         sessionTokens: state.sessionTokens,
         targetWord: state.targetWord,
         targetWordId: state.targetWordId,
+        difficulty: state.difficulty,
         sessionId: state.sessionId,
         scoreSubmitted: state.scoreSubmitted,
-        // isLoading deliberately excluded
+        // isLoading, isWon, wonRank, victoryMessage deliberately excluded
       }),
     }
   )

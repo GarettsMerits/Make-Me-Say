@@ -52,20 +52,16 @@ const InputActionButtons: React.FC<InputActionButtonsProps> = ({
       }}
     >
       {/* 
-        Reset button - clears chat history
-        
-        DISABLED WHEN:
-        - Currently loading LLM response
-        - No messages to reset
+        Reset button — always clickable so the player can change difficulty
+        or start over at any point, even before sending a message.
       */}
       <motion.button
         type="button"
         onClick={onReset}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        whileTap={!isLoading ? { scale: 0.97 } : {}}
         className="flex-1 btn-secondary flex items-center justify-center text-2xl"
-        disabled={isLoading || !hasMessages}
-        title="Reset chat"
+        disabled={isLoading}
+        title="Reset / change difficulty"
       >
         🔄
       </motion.button>
@@ -83,8 +79,7 @@ const InputActionButtons: React.FC<InputActionButtonsProps> = ({
       */}
       <motion.button
         type="submit"
-        whileHover={!isLoading && !isGameOver && hasInput ? { scale: 1.05 } : {}}
-        whileTap={!isLoading && !isGameOver && hasInput ? { scale: 0.95 } : {}}
+        whileTap={!isLoading && !isGameOver && hasInput ? { scale: 0.97 } : {}}
         disabled={isLoading || isGameOver || !hasInput}
         className="flex-1 btn-primary flex items-center justify-center text-3xl"
         title="Send message"

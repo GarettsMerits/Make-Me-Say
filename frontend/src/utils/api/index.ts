@@ -6,7 +6,7 @@
  */
 export * from './types';
 export * from './client';      // setPassphrase, clearPassphrase
-export * from './auth';        // verifyPassphrase
-export * from './targetWord';  // fetchTargetWord
+export * from './passphrase';  // verifyPassphrase
+export * from './targetWord';  // fetchTargetWord, rerollWord
 export * from './chat';        // sendChatMessage
 export * from './leaderboard'; // fetchLeaderboard, fetchLeaderboardRank, submitScore, fetchLeaderboardStats

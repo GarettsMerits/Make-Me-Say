@@ -7,7 +7,7 @@
  * - When isWon is true, the prompt switches to a "Dangit! I said …" message
  *   to acknowledge the player's victory.
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface UserInstructionPromptProps {
@@ -16,6 +16,13 @@ interface UserInstructionPromptProps {
 }
 
 const UserInstructionPrompt: React.FC<UserInstructionPromptProps> = ({ targetWord, isWon = false }) => {
+  // Hold the last confirmed (non-empty) word so the prompt stays stable
+  // while a reroll fetch is in flight and targetWord is momentarily ''.
+  const stableWord = useRef(targetWord);
+  if (targetWord) stableWord.current = targetWord;
+
+  const displayWord = stableWord.current || 'banana';
+
   return (
     <div className="bar-top">
       <div className="max-w-4xl mx-auto px-4 py-3">
@@ -31,7 +38,7 @@ const UserInstructionPrompt: React.FC<UserInstructionPromptProps> = ({ targetWor
               <p className="text-lg font-medium text-gray-800 dark:text-gray-200">
                 Dangit! I said{' '}
                 <span className="text-xl font-bold text-green-600 dark:text-green-400">
-                  "{targetWord || 'banana'}"
+                  "{displayWord}"
                 </span>
               </p>
             </motion.div>
@@ -46,7 +53,7 @@ const UserInstructionPrompt: React.FC<UserInstructionPromptProps> = ({ targetWor
               <p className="text-lg font-medium text-gray-800 dark:text-gray-200">
                 I dare you to make me say{' '}
                 <span className="text-xl font-bold text-red-600 dark:text-red-400">
-                  "{targetWord || 'banana'}"
+                  "{displayWord}"
                 </span>
               </p>
             </motion.div>

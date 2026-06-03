@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MESSAGE_GRID, BAR_BOTTOM } from '../../../styles/chatLayout';
+import { MESSAGE_GRID } from '../../../styles/chatLayout';
 import { formatTokenCount } from '../../../utils/tokenCounter';
 import { rankLabel, rankColourClass } from '../../../utils/rankHelpers';
 
@@ -24,13 +24,11 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
   onDecline,
 }) => (
   <motion.div
-    key="prompt"
-    initial={{ opacity: 0, y: 12 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -12 }}
-    transition={{ duration: 0.25 }}
-    className="space-y-3 flex flex-col justify-center"
-    style={{ minHeight: BAR_BOTTOM.minHeightPx }}
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ duration: 0.2 }}
+    className="h-full space-y-3 flex flex-col justify-center"
   >
     {/* Congratulatory headline */}
     <div className="text-center space-y-1">
@@ -56,7 +54,6 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
       <motion.button
         type="button"
         onClick={onSubmit}
-        whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.97 }}
         className="btn btn-primary py-2 text-sm font-medium"
       >
@@ -66,7 +63,6 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
       <motion.button
         type="button"
         onClick={onDecline}
-        whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.97 }}
         className="btn btn-secondary py-2 text-sm"
         title="Skip score submission"

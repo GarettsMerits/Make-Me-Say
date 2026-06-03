@@ -25,11 +25,17 @@ interface UIState {
    * apply a highlight style, then clear the value.
    */
   pendingHighlightId: number | null;
+  /**
+   * True once the player has confirmed a difficulty at least once.
+   * Used to detect first-time visitors and send them to How To Play.
+   */
+  hasSeenGame: boolean;
   
   // ===== ACTIONS =====
   toggleDarkMode: () => void;
   setCurrentPage: (page: PageType) => void;
   setPendingHighlightId: (id: number | null) => void;
+  setHasSeenGame: () => void;
 }
 
 /**
@@ -44,8 +50,9 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       // ===== INITIAL VALUES =====
       isDarkMode: false,
-      currentPage: 'chat',
+      currentPage: 'howtoplay',
       pendingHighlightId: null,
+      hasSeenGame: false,
       
       // ===== ACTION IMPLEMENTATIONS =====
       
@@ -56,6 +63,8 @@ export const useUIStore = create<UIState>()(
       setCurrentPage: (page) => set({ currentPage: page }),
 
       setPendingHighlightId: (id) => set({ pendingHighlightId: id }),
+
+      setHasSeenGame: () => set({ hasSeenGame: true }),
     }),
     {
       name: 'ui-preferences',  // localStorage key

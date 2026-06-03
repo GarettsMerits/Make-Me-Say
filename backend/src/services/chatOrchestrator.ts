@@ -95,6 +95,15 @@ async function streamLossTurn(
   const lossHistory: ChatMessage[] = [
     ...llmMessages,
     { role: 'assistant', content: llmResponse },
+    // Explicit narration injected as a user turn so the LLM cannot misattribute
+    // the loss to anything other than its own previous response.
+    {
+      role: 'user',
+      content:
+        `[GAME OVER — Word Detection System]: YOUR previous "assistant" response above ` +
+        `contained the forbidden word "${targetWord}". It was found in YOUR message, not the user's. ` +
+        `You have lost. Now acknowledge your defeat.`,
+    },
   ];
 
   const { rank: lossRank, total: lossTotalEntries } = await fetchRankContext(totalTokens);
@@ -164,11 +173,25 @@ export async function runTurn(res: Response, input: TurnInput): Promise<void> {
     gameOver,
   );
 
+  // Tally only the player's own tokens (prior turns + this turn) for the
+  // loss prompt — LLM response tokens are not part of the player's score.
+  const priorUserTokens = storedMessages
+    .filter((m) => m.sender === 'user')
+    .reduce((sum, m) => sum + (m.tokenCount ?? 0), 0);
+  const playerTokens = priorUserTokens + userTokens;
+
   // 3. Done event
-  sseWrite(res, 'done', { sessionId, tokenCount: llmTokens, totalTokens, gameOver, targetWordDetected: gameOver });
+  sseWrite(res, 'done', {
+    sessionId,
+    tokenCount: llmTokens,
+    totalTokens,
+    gameOver,
+    targetWordDetected: gameOver,
+    ...(gameOver ? { llmVictoryMessage: llmResponse } : {}),
+  });
 
   // 4. Loss acknowledgement
   if (gameOver) {
-    await streamLossTurn(res, targetWord, llmMessages, llmResponse, totalTokens);
+    await streamLossTurn(res, targetWord, llmMessages, llmResponse, playerTokens);
   }
 }

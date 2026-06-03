@@ -21,6 +21,8 @@ export interface ChatScrollAreaProps {
   isWon: boolean;
   targetWord: string;
   wonRank: number | null;
+  onReroll: () => void;
+  isRerolling: boolean;
 }
 
 const ChatScrollArea: React.FC<ChatScrollAreaProps> = ({
@@ -29,17 +31,21 @@ const ChatScrollArea: React.FC<ChatScrollAreaProps> = ({
   isWon,
   targetWord,
   wonRank,
+  onReroll,
+  isRerolling,
 }) => (
   <div className="flex-1 relative overflow-hidden">
 
     {/* Scrollable viewport — messages stack from the bottom up */}
     <div className="absolute inset-0 overflow-y-auto scrollbar-hide">
-      <div className={getChatContainerClasses('py-4 min-h-full flex flex-col justify-end')}>
+      <div className={getChatContainerClasses('h-full flex flex-col justify-end')}>
         <ChatMessagesContainer
           messages={messages}
           isLoading={isLoading}
           winningWord={isWon ? targetWord : undefined}
           wonRank={wonRank ?? undefined}
+          onReroll={onReroll}
+          isRerolling={isRerolling}
         />
       </div>
     </div>

@@ -165,6 +165,11 @@ export async function persistExchange(
           VALUES (?, ?, ?, ?, ?)`,
         [sessionId, targetWord, totalTokens, JSON.stringify(updatedMessages), completed],
       );
+      // First message in this game — mark it as a game played for the target word
+      pool.execute(
+        'UPDATE target_words SET total_games_played = total_games_played + 1 WHERE word = ?',
+        [targetWord],
+      ).catch((err) => console.warn('Could not update total_games_played:', err));
     }
   } catch (dbError) {
     console.warn('Could not persist session to database:', dbError);

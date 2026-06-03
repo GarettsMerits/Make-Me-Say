@@ -1,7 +1,7 @@
 /**
- * DeepSeek API configuration.
+ * config/llm.ts — DeepSeek API connection parameters.
  *
- * All LLM connection parameters live here so switching models or endpoints
+ * All LLM connection settings live here so switching models or endpoints
  * requires touching exactly one file.
  *
  * Environment variables (set in backend/.env):
@@ -17,7 +17,7 @@ export const LLM_CONFIG = {
   /** Default generation limits used when callers don't specify their own. */
   defaults: {
     maxTokens:   500,
-    temperature: 0.7,
+    temperature: 0.85,
   },
   /** Axios timeouts in milliseconds. */
   timeouts: {

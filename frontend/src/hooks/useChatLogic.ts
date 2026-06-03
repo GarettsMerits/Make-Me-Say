@@ -13,11 +13,16 @@
  * - Tracks the backend session ID so conversation history is preserved server-side
  */
 import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useGameStore } from '../store';
+import { useUIStore } from '../store';
 import { estimateTokenCount } from '../utils/tokenCounter';
-import { fetchTargetWord, sendChatMessage, fetchLeaderboardRank } from '../utils/api';
+import { fetchTargetWord, rerollWord, sendChatMessage, fetchLeaderboardRank } from '../utils/api';
+import type { Difficulty } from '../utils/api/types';
 
 export const useChatLogic = () => {
+  const { setHasSeenGame, hasSeenGame } = useUIStore();
+
   const {
     messages,
     addMessage,
@@ -27,6 +32,9 @@ export const useChatLogic = () => {
     targetWord,
     targetWordId,
     setTargetWord,
+    difficulty,
+    setDifficulty,
+    setVictoryMessage,
     isLoading,
     setIsLoading,
     sessionId,
@@ -35,11 +43,18 @@ export const useChatLogic = () => {
     setIsWon,
     wonRank,
     setWonRank,
+    setScoreSubmitted,
     resetSession,
   } = useGameStore();
 
   // Surfaced to the UI so the user can see connection problems
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Controls whether the difficulty dialog is visible.
+   * Mirrors !difficulty on mount; also opened explicitly when Reset is pressed.
+   */
+  const [showDifficultyDialog, setShowDifficultyDialog] = useState(!difficulty);
 
   /**
    * On mount, check whether the persisted messages already contain a win
@@ -53,6 +68,7 @@ export const useChatLogic = () => {
     const regex = new RegExp(`\\b${escaped}\\b`, 'i');
     const hasWin = messages.some((m) => m.sender === 'llm' && regex.test(m.text));
     if (hasWin) {
+      setScoreSubmitted(false);
       setIsWon(true);
       fetchLeaderboardRank(sessionTokens).then(setWonRank).catch(() => {});
     }
@@ -61,26 +77,27 @@ export const useChatLogic = () => {
 
   /**
    * Fetch a target word from the backend on mount (or when targetWord is empty).
+   * Skipped if difficulty has not yet been chosen (dialog not confirmed).
    */
   useEffect(() => {
+    // Wait for the player to select a difficulty before fetching
+    if (!difficulty) return;
+
     // Already have everything we need — nothing to do
     if (targetWord && targetWordId !== null) return;
 
     // Stale persisted session: word string is present but DB id was never saved
-    // (can happen if the store was saved before targetWordId was added to the schema).
-    // Reset so the stale chat history is cleared; the effect will re-run with
-    // an empty targetWord and fetch a fresh word + id.
     if (targetWord && targetWordId === null) {
       resetSession();
       return;
     }
 
-    // targetWord is empty — fetch a fresh word
+    // targetWord is empty — fetch a fresh word for the chosen difficulty
     let cancelled = false;
 
     async function loadTargetWord() {
       try {
-        const result = await fetchTargetWord();
+        const result = await fetchTargetWord(difficulty as Difficulty);
         if (!cancelled) setTargetWord(result.word, result.id);
       } catch (err) {
         if (!cancelled) {
@@ -94,7 +111,7 @@ export const useChatLogic = () => {
     return () => { cancelled = true; };
   // resetSession is stable (Zustand action) so omitting it from deps is safe
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetWord, targetWordId, setTargetWord]);
+  }, [targetWord, targetWordId, difficulty, setTargetWord]);
 
   /**
    * Submit a user message and stream the LLM response from the backend.
@@ -125,13 +142,18 @@ export const useChatLogic = () => {
     const trimmedMessage = messageText.trim();
     const userTokens = estimateTokenCount(trimmedMessage);
 
-    // Add user message immediately so the UI feels responsive
-    addMessage({ text: trimmedMessage, sender: 'user', tokenCount: userTokens });
-    addSessionTokens(userTokens);
-
-    // Add empty LLM placeholder — chunks will fill it in
-    addMessage({ text: '', sender: 'llm' });
-    setIsLoading(true);
+    // flushSync forces React to commit these updates to the DOM synchronously
+    // before the fetch starts. Without it, React 18 schedules the render via a
+    // MessageChannel macrotask which can lose a race against a fast local
+    // server — the first SSE chunk would arrive before the user message
+    // was painted, causing it to appear only when the LLM response began.
+    flushSync(() => {
+      addMessage({ text: trimmedMessage, sender: 'user', tokenCount: userTokens });
+      addSessionTokens(userTokens);
+      // Add empty LLM placeholder — chunks will fill it in
+      addMessage({ text: '', sender: 'llm' });
+      setIsLoading(true);
+    });
 
     await sendChatMessage(
       sessionId
@@ -146,18 +168,21 @@ export const useChatLogic = () => {
           setIsLoading(false);
           updateLastMessage(chunk);
         },
-        onDone: ({ totalTokens, gameOver }) => {
+        onDone: ({ totalTokens, gameOver, llmVictoryMessage }) => {
           setIsLoading(false);
           if (gameOver) {
             // Add an empty placeholder for the loss-acknowledgement message
             // that will be filled by onLossChunk below.
             addMessage({ text: '', sender: 'llm' });
+            if (llmVictoryMessage) setVictoryMessage(llmVictoryMessage);
             fetchLeaderboardRank(totalTokens)
               .then((rank) => {
+                setScoreSubmitted(false);
                 setWonRank(rank);
                 setIsWon(true);
               })
               .catch(() => {
+                setScoreSubmitted(false);
                 setIsWon(true);
               });
           }
@@ -178,25 +203,69 @@ export const useChatLogic = () => {
   };
 
   /**
-   * Reset the session — clears messages, tokens, target word, and session ID.
-   * A fresh target word will be fetched automatically by the useEffect above.
-   * The caller is responsible for showing a confirmation dialog before calling this.
+   * Opens the difficulty dialog instead of resetting immediately.
+   * The dialog's onConfirm will call handleDifficultyConfirm which resets
+   * the session with the chosen difficulty.
+   * Always available — no messages required.
    */
   const handleReset = () => {
-    resetSession();
-    return true;
+    setShowDifficultyDialog(true);
   };
+
+  /**
+   * Called when the player confirms a difficulty in the dialog.
+   * On first visit: records the visit and stays on chat page.
+   * On subsequent visits (reset): clears the session then applies the
+   * new difficulty so the word-fetch effect fires immediately.
+   */
+  const handleDifficultyConfirm = (chosenDifficulty: Difficulty) => {
+    setShowDifficultyDialog(false);
+    if (!hasSeenGame) {
+      // First visit: just set difficulty, stay on chat
+      setHasSeenGame();
+      setDifficulty(chosenDifficulty);
+    } else {
+      // Reset path: clear session then restore difficulty
+      resetSession();
+      setDifficulty(chosenDifficulty);
+    }
+  };
+
+  /**
+   * Reroll the target word without a confirmation dialog.
+   * Only valid when no messages exist yet. Notifies the backend before
+   * clearing, then resetSession triggers the fetch effect to load a new word.
+   */
+  const handleReroll = () => {
+    if (messages.length > 0) return;
+    if (!targetWord) return;
+    const currentDifficulty = difficulty;
+    if (targetWordId !== null) {
+      rerollWord(targetWordId).catch(() => {});
+    }
+    resetSession();
+    // Re-apply difficulty so the dialog doesn't re-appear on reroll
+    if (currentDifficulty) setDifficulty(currentDifficulty);
+  };
+
+  /** True while the initial target-word fetch is pending (difficulty chosen but word not yet loaded). */
+  const isRerolling = !!difficulty && !targetWord;
 
   return {
     messages,
     sessionTokens,
     targetWord,
     sessionId,
+    difficulty,
+    showDifficultyDialog,
+    handleDifficultyConfirm,
     isLoading,
     isWon,
     wonRank,
     error,
     handleSubmit,
     handleReset,
+    handleReroll,
+    isRerolling,
   };
 };

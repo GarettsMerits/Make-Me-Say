@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MESSAGE_GRID, INPUT_BOX, BAR_BOTTOM } from '../../../styles/chatLayout';
+import { MESSAGE_GRID, INPUT_BOX } from '../../../styles/chatLayout';
 
 export interface DeclinedPanelProps {
   onReset: () => void;
@@ -16,13 +16,11 @@ export interface DeclinedPanelProps {
 
 const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ onReset }) => (
   <motion.div
-    key="declined"
-    initial={{ opacity: 0, y: 12 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -12 }}
-    transition={{ duration: 0.25 }}
-    className="space-y-2 flex flex-col justify-center"
-    style={{ minHeight: BAR_BOTTOM.minHeightPx }}
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ duration: 0.2 }}
+    className="h-full space-y-2 flex flex-col justify-center"
   >
     {/* Status line */}
     <div className="flex justify-between items-center mb-2 text-sm app-muted">
@@ -48,16 +46,14 @@ const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ onReset }) => (
         className="flex flex-col gap-2"
         style={{ height: INPUT_BOX.textareaHeightPx, width: MESSAGE_GRID.rightColumnWidthPx }}
       >
-        <motion.button
+        <button
           type="button"
           onClick={onReset}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
           className="flex-1 btn-secondary flex items-center justify-center text-2xl"
           title="Reset chat"
         >
           🔄
-        </motion.button>
+        </button>
 
         <button
           type="button"

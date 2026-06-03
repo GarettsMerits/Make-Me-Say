@@ -2,10 +2,9 @@
  * ChatPage — root of the game interface.
  *
  * RESPONSIBILITY: pure composition.
- *  - Wires hooks to child components
- *  - Delegates layout to ChatScrollArea and ChatInputSection
- *  - Delegates dialog state to useChatDialogs, rendering via ChatDialogs
- *  - Contains NO business logic
+ *  - Runs useChatLogic (LLM streaming, win detection, session management)
+ *  - Delegates all bottom-bar state (input, dialogs, victory flow) to BottomBar
+ *  - No business logic here
  *
  * LAYOUT (absolute inset-0, flex column):
  *  ┌─────────────────────────────┐  ← shrink-0
@@ -13,57 +12,49 @@
  *  │  [error banner if any]      │
  *  ├─────────────────────────────┤  ← flex-1 (ChatScrollArea)
  *  │  Scrollable messages        │
- *  ├─────────────────────────────┤  ← shrink-0 (ChatInputSection)
- *  │  VictoryBar | MessageInput  │
+ *  ├─────────────────────────────┤  ← shrink-0 (BottomBar)
+ *  │  Input / Victory panels     │
  *  └─────────────────────────────┘
- *  ChatDialogs overlaid at root level (covers everything except TopRibbon)
+ *  ConfirmDialogs are rendered inside BottomBar's fragment and surface as
+ *  direct DOM siblings of the bar, covering the full chat area via absolute
+ *  positioning relative to this root div.
  */
-
 import React from 'react';
 import { useChatLogic } from '../hooks/useChatLogic';
-import { useMessageInput } from '../hooks/useMessageInput';
-import { useChatDialogs } from '../hooks/useChatDialogs';
-import { useUIStore, useGameStore } from '../store';
 import UserInstructionPrompt from './chat/UserInstructionPrompt';
 import ChatScrollArea from './chat/ChatScrollArea';
-import ChatInputSection from './chat/ChatInputSection';
-import ChatDialogs from './chat/ChatDialogs';
+import BottomBar from './chat/BottomBar';
+import DifficultyDialog from './DifficultyDialog';
 
 const ChatPage: React.FC = () => {
   const {
     messages,
     sessionTokens,
     targetWord,
-    sessionId,
+    difficulty,
+    showDifficultyDialog,
+    handleDifficultyConfirm,
     isLoading,
     isWon,
     wonRank,
     error,
     handleSubmit,
     handleReset,
+    handleReroll,
+    isRerolling,
   } = useChatLogic();
-
-  const { setCurrentPage, setPendingHighlightId } = useUIStore();
-  const { scoreSubmitted, setScoreSubmitted } = useGameStore();
-
-  const {
-    inputText,
-    inputTokens,
-    potentialPosition,
-    setInputText,
-    submitInput,
-    clearInput,
-  } = useMessageInput();
-
-  const dialogs = useChatDialogs(handleReset, clearInput);
-
-  const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    submitInput(handleSubmit);
-  };
 
   return (
     <div className="absolute inset-0 flex flex-col bg-layer-1-light dark:bg-layer-1-dark">
+
+      {/* Difficulty selection dialog — new game welcome or reset chooser */}
+      {showDifficultyDialog && (
+        <DifficultyDialog
+          onConfirm={handleDifficultyConfirm}
+          isReset={!!difficulty}
+          currentDifficulty={difficulty}
+        />
+      )}
 
       {/* Top bar — instruction prompt + optional error banner */}
       <div className="shrink-0">
@@ -82,41 +73,14 @@ const ChatPage: React.FC = () => {
         isWon={isWon}
         targetWord={targetWord}
         wonRank={wonRank}
+        onReroll={handleReroll}
+        isRerolling={isRerolling}
       />
 
-      {/* Bottom input bar — VictoryBar or MessageInputBox */}
-      <ChatInputSection
-        isWon={isWon}
-        sessionTokens={sessionTokens}
-        targetWord={targetWord}
-        sessionId={sessionId}
-        wonRank={wonRank}
-        onRequestDeclineConfirm={dialogs.onRequestDeclineConfirm}
-        onRequestResetConfirm={dialogs.onRequestResetConfirm}
-        onScoreSubmitted={(entryId) => {
-          setScoreSubmitted(true);
-          if (entryId !== null) setPendingHighlightId(entryId);
-          setCurrentPage('leaderboard');
-        }}
-        scoreSubmitted={scoreSubmitted}
-        inputText={inputText}
-        inputTokens={inputTokens}
-        isLoading={isLoading}
-        hasMessages={messages.length > 0}
-        potentialPosition={potentialPosition}
-        onInputChange={setInputText}
-        onSubmit={onSubmit}
-        onReset={dialogs.openResetDialog}
-      />
-
-      {/* Confirmation dialogs — rendered at root so overlay spans the full chat area */}
-      <ChatDialogs
-        resetDialogOpen={dialogs.resetDialogOpen}
-        pendingConfirm={dialogs.pendingConfirm}
-        onConfirmReset={dialogs.confirmReset}
-        onCancelReset={dialogs.cancelReset}
-        onConfirmPending={dialogs.confirmPending}
-        onCancelPending={dialogs.cancelPending}
+      {/* Bottom bar — input, victory flow, dialogs */}
+      <BottomBar
+        onSubmit={handleSubmit}
+        onReset={handleReset}
       />
 
     </div>

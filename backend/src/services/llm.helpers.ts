@@ -1,8 +1,8 @@
 /**
- * Internal helpers for the LLM service.
+ * llm.helpers.ts — internal helpers for the LLM service.
  *
- * Kept separate so llm.ts stays focused on I/O and these utilities can be
- * tested independently without making any network calls.
+ * Kept separate so llm.ts stays focused on I/O and these pure utilities can
+ * be tested independently without making any network calls.
  */
 import { encoding_for_model } from 'tiktoken';
 import { buildNormalPrompt } from '../prompts/normalPrompt.js';

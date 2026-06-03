@@ -5,12 +5,16 @@
  * creating circular dependencies between each other.
  */
 
+// ─── Difficulty ───────────────────────────────────────────────────────────────
+
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
+
 // ─── Target Word ──────────────────────────────────────────────────────────────
 
 export interface TargetWordResponse {
   id: number;
   word: string;
-  difficulty: 'easy' | 'medium' | 'hard';
+  difficulty: Difficulty;
 }
 
 // ─── Chat / SSE ───────────────────────────────────────────────────────────────
@@ -40,6 +44,8 @@ export interface ChatDonePayload {
   totalTokens: number;
   gameOver: boolean;
   targetWordDetected: boolean;
+  /** The LLM message that contained the target word (only present when gameOver=true). */
+  llmVictoryMessage?: string;
 }
 
 /** Caller-supplied callbacks for reacting to each streaming event. */
@@ -65,6 +71,8 @@ export interface LeaderboardEntry {
   player_name: string;
   token_count: number;
   target_word: string;
+  difficulty: Difficulty;
+  llm_victory_message: string | null;
   completed_at: string;
   session_id: string | null;
 }
@@ -78,6 +86,8 @@ export interface SubmitScoreRequest {
   playerName: string;
   tokenCount: number;
   targetWord: string;
+  difficulty: Difficulty;
+  llmVictoryMessage?: string | null;
   sessionId?: string;
 }
 
@@ -95,3 +105,4 @@ export interface LeaderboardStats {
   worstScore: number;
   popularWords: { target_word: string; count: number }[];
 }
+

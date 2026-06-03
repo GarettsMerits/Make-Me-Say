@@ -1,5 +1,5 @@
 -- dont-make-me-say Database Schema
--- Created: August 2025
+-- Updated: May 2026
 -- Language: MySQL
 
 CREATE DATABASE IF NOT EXISTS dont_make_me_say
@@ -14,18 +14,23 @@ CREATE TABLE IF NOT EXISTS leaderboard (
     player_name VARCHAR(255) NOT NULL,
     token_count INT NOT NULL,
     target_word VARCHAR(100) NOT NULL,
+    difficulty ENUM('easy', 'normal', 'hard', 'nightmare') NOT NULL DEFAULT 'normal',
+    llm_victory_message TEXT,
     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     session_id VARCHAR(255),
     
     INDEX idx_token_count (token_count),
     INDEX idx_completed_at (completed_at),
-    INDEX idx_target_word (target_word)
+    INDEX idx_target_word (target_word),
+    INDEX idx_difficulty (difficulty),
+    INDEX idx_diff_tokens (difficulty, token_count)
 ) ENGINE=InnoDB;
 
 -- Game sessions table for tracking active games
 CREATE TABLE IF NOT EXISTS game_sessions (
     id VARCHAR(255) PRIMARY KEY,
     target_word VARCHAR(100) NOT NULL,
+    difficulty ENUM('easy', 'normal', 'hard', 'nightmare') NOT NULL DEFAULT 'normal',
     current_tokens INT DEFAULT 0,
     messages JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -42,25 +47,22 @@ CREATE TABLE IF NOT EXISTS game_sessions (
 CREATE TABLE IF NOT EXISTS target_words (
     id INT AUTO_INCREMENT PRIMARY KEY,
     word VARCHAR(100) NOT NULL UNIQUE,
-    difficulty_level ENUM('easy', 'medium', 'hard') DEFAULT 'medium',
+    difficulty ENUM('easy', 'normal', 'hard', 'nightmare') NOT NULL DEFAULT 'normal',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Word statistics
+    assignment_count INT NOT NULL DEFAULT 0,        -- times this word was assigned to a player
+    reroll_count INT NOT NULL DEFAULT 0,            -- times a player rerolled off this word (no messages sent)
+    total_games_played INT NOT NULL DEFAULT 0,      -- games where at least one message was sent with this word
+    win_count INT NOT NULL DEFAULT 0,               -- times players have won with this word
+    avg_tokens_to_win DECIMAL(10,2) DEFAULT NULL,   -- average player input tokens to win
+    max_tokens_to_win INT DEFAULT NULL,             -- most tokens a player has input to win
+    min_tokens_to_win INT DEFAULT NULL,             -- least tokens a player has input to win
     
-    INDEX idx_difficulty (difficulty_level),
+    INDEX idx_difficulty (difficulty),
     INDEX idx_active (is_active)
 ) ENGINE=InnoDB;
-
--- Insert some initial target words
-INSERT INTO target_words (word, difficulty_level) VALUES
-('butterfly', 'easy'),
-('happiness', 'easy'),
-('adventure', 'easy'),
-('mysterious', 'medium'),
-('philosophy', 'medium'),
-('extraordinary', 'medium'),
-('serendipity', 'hard'),
-('quintessential', 'hard'),
-('ephemeral', 'hard');
 
 -- API usage tracking for rate limiting and analytics
 CREATE TABLE IF NOT EXISTS api_usage (
@@ -73,3 +75,22 @@ CREATE TABLE IF NOT EXISTS api_usage (
     INDEX idx_ip_timestamp (ip_address, timestamp),
     INDEX idx_endpoint (endpoint)
 ) ENGINE=InnoDB;
+
+-- Migration helper: run these ALTER statements on existing databases
+-- ALTER TABLE leaderboard
+--     ADD COLUMN difficulty ENUM('easy','normal','hard','nightmare') NOT NULL DEFAULT 'normal' AFTER target_word,
+--     ADD COLUMN llm_victory_message TEXT AFTER difficulty,
+--     ADD INDEX idx_difficulty (difficulty);
+--
+-- ALTER TABLE game_sessions
+--     ADD COLUMN difficulty ENUM('easy','normal','hard','nightmare') NOT NULL DEFAULT 'normal' AFTER target_word;
+--
+-- ALTER TABLE target_words
+--     CHANGE COLUMN difficulty_level difficulty ENUM('easy','normal','hard','nightmare') NOT NULL DEFAULT 'normal',
+--     ADD COLUMN assignment_count INT NOT NULL DEFAULT 0 AFTER is_active,
+--     ADD COLUMN reroll_count INT NOT NULL DEFAULT 0 AFTER assignment_count,
+--     ADD COLUMN total_games_played INT NOT NULL DEFAULT 0 AFTER reroll_count,
+--     ADD COLUMN win_count INT NOT NULL DEFAULT 0 AFTER total_games_played,
+--     ADD COLUMN avg_tokens_to_win DECIMAL(10,2) DEFAULT NULL AFTER win_count,
+--     ADD COLUMN max_tokens_to_win INT DEFAULT NULL AFTER avg_tokens_to_win,
+--     ADD COLUMN min_tokens_to_win INT DEFAULT NULL AFTER max_tokens_to_win;

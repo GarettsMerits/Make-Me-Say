@@ -28,7 +28,7 @@
  *  - ChatPage: "Decline score submission" confirmation
  *  - ChatPage: "Start a new game" (Reset) confirmation
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
 export interface ConfirmDialogProps {
@@ -63,6 +63,15 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [onCancel]);
 
+  // Ignore backdrop pointer events briefly after mount so that gesture event
+  // tails (whileTap completions, synthetic touch→mouse events, etc.) from the
+  // button that opened the dialog cannot immediately dismiss it.
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setInteractive(true), 350);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <motion.div
       key="overlay"
@@ -83,7 +92,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         // *opened* the dialog from immediately dismissing it: the backdrop
         // doesn't exist yet at pointerdown time, so it can never receive that
         // event — only deliberate new interactions reach this handler.
-        onPointerDown={onCancel}
+        onPointerDown={interactive ? onCancel : undefined}
       >
         {/* Dialog card — stop click propagation so the card itself doesn't cancel */}
         <motion.div

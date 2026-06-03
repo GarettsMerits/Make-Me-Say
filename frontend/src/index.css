@@ -101,7 +101,9 @@ code {
 
   /* Shared base — apply alongside a colour variant below */
   .btn {
-    @apply rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply rounded-lg transition-colors
+           active:brightness-90
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:brightness-100;
   }
 
   /* Ghost / icon button (dark mode toggle, nav items) */

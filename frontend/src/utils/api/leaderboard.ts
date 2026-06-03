@@ -22,12 +22,16 @@ export async function fetchLeaderboardRank(tokenCount: number): Promise<number> 
 
 /**
  * Fetch the top scores from the leaderboard.
- * @param limit  Max number of results to return (default: 10).
+ * @param limit       Max number of results to return (default: 10).
+ * @param difficulty  Optional filter to show only entries from one difficulty tier.
  */
-export async function fetchLeaderboard(limit = 10): Promise<LeaderboardResponse> {
-  return apiClient.fetch<LeaderboardResponse>(
-    `/api/leaderboard?limit=${encodeURIComponent(limit)}`
-  );
+export async function fetchLeaderboard(
+  limit = 10,
+  difficulty?: import('./types').Difficulty,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (difficulty) params.set('difficulty', difficulty);
+  return apiClient.fetch<LeaderboardResponse>(`/api/leaderboard?${params.toString()}`);
 }
 
 /**
