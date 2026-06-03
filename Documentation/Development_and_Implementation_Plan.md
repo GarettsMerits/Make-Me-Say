@@ -28,7 +28,7 @@
 | **rate-limiter-flexible** | Per-IP in-memory rate limiting (swappable to Redis) |
 | **tsx** | TypeScript execution in development without a compile step |
 
-> **Why Node over ASP.NET?** The original plan called for ASP.NET Core (C#). During early implementation it became clear that the Node/TypeScript stack offered tighter integration with the LLM tooling (tiktoken, SSE, axios) and kept the codebase in a single language end-to-end. The decision trades the familiarity of .NET for demonstrably faster iteration and a more cohesive portfolio piece.
+> **Why Node over ASP.NET?** My original plan called for ASP.NET Core (C#). During early implementation I found that the Node/TypeScript stack offered tighter integration with the LLM tooling (tiktoken, SSE, axios) and kept the codebase in a single language end-to-end. I traded the familiarity of .NET for faster iteration and a more cohesive portfolio piece.
 
 ### Database
 
@@ -183,21 +183,6 @@ Stores one row per session. Links messages, target word, difficulty, and score s
 | **WebSocket upgrade** | SSE works well for one-directional streaming; a future multiplayer mode might warrant Socket.IO |
 | **Accessibility** | ARIA labels on interactive elements, keyboard nav for the difficulty dialog and confirm modals |
 | **Mobile polish** | Touch-friendly tap targets, virtual keyboard handling for the chat textarea |
-3. **Advanced Security:**
-    - Implement Cloudflare Turnstile for passphrase page to block bots.
-    - Add audit logging (who won, when, IP) for leaderboard submissions.
-4. **Performance Metrics:**
-    - Track frontend perf via `react-device-detect` + logs:
-        
-        ```tsx
-        console.log(`Mobile load: ${window.performance.now()}ms`);
-        
-        ```
-        
-5. **Open-Source Ready:**
-    - Dockerize backend/frontend + detailed `README.md` with architecture diagram.
-6. **Bonus Feature:**
-    - **"Hall of Shame"** for funniest LLM responses avoiding the target word (stored in DB).
 
 ---
 
