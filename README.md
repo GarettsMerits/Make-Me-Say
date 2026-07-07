@@ -1,8 +1,8 @@
 # Don't Make Me Say
 
-A full-stack web game where you try to trick an AI into saying a word it's been explicitly told to avoid.
+A full-stack web game where you try to trick an LLM into saying a word it's been explicitly told to avoid.
 
-A target word is displayed at the top of the chat interface. The LLM has been prompted to never say it. Your goal is to craft messages clever enough to make it slip up anyway. Win, and your score — measured in how many tokens of input it took you — is posted to the leaderboard.
+A target word is displayed at the top of the chat interface. The LLM has been prompted to never say it. Your goal is to craft messages clever enough to make it slip up anyway. Win, and your score, measured in how many tokens of input it took you, is posted to the leaderboard.
 
 > **Note:** This project is actively in development. Core gameplay, the passphrase gate, leaderboard, and difficulty system are functional. Some planned features (post-win leaderboard navigation, session win-rehydration on reload) are partially or not yet implemented.
 
@@ -10,7 +10,7 @@ A target word is displayed at the top of the chat interface. The LLM has been pr
 
 ## Features
 
-- **Four difficulty levels** — Easy (common articles/pronouns), Normal (everyday nouns and verbs), Hard (specific but recognisable vocabulary), Nightmare (obscure and technical words)
+- **Four difficulty levels** — Easy (common articles/pronouns), Normal (everyday nouns and verbs), Hard (specific but recognizable vocabulary), Nightmare (obscure and technical words)
 - **Live token counter** — Tracks your input token budget as you type and shows your projected leaderboard rank before you even send a message
 - **Leaderboard** — Per-difficulty rankings scored by total player input tokens, lowest wins; includes the exact LLM message that gave the game away
 - **Win sequence** — The target word in the winning LLM message is animated with a letter-wave and a rank-coloured shimmer (gold/silver/bronze)
@@ -42,7 +42,7 @@ A target word is displayed at the top of the chat interface. The LLM has been pr
 ├── backend/
 │   ├── src/
 │   │   ├── config/          # env.ts (validated env vars), llm.ts (API params)
-│   │   ├── db/              # connection pool, schema initialisation
+│   │   ├── db/              # connection pool, schema initialization
 │   │   ├── middleware/      # passphrase.ts (auth gate), rateLimiter.ts
 │   │   ├── prompts/         # LLM system prompt builders
 │   │   ├── routes/          # targetWord, chat, leaderboard, router index
