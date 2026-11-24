@@ -33,7 +33,7 @@ Lists live in `backend/words/<difficulty>.csv`, one `word` column, seeded lowerc
 
 ### Easy (~94 words)
 
-Function words and other terms that are hard to avoid in ordinary English: *a, the, to, for, my, you, and, is, of,* and similar. A whole-word match on *a* or *I* (stored as `i`) fires on almost any normal sentence, which is the point of the tier. The model is still prompted to dodge, including with misspellings, so a careful model can refuse to emit the exact token.
+Function words and other terms that are hard to avoid in ordinary English: *a, the, to, for, my, you, and, is, of,* and similar. A whole-word match on *a* or *I* (stored as `i`) fires on almost any normal sentence, which is the point of the tier. The model is still prompted never to write the exact word, and not to dodge it with a misspelling, so a careful model can keep the word out of a reply that otherwise answers.
 
 ### Normal (~141 words)
 

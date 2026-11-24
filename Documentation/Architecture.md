@@ -155,7 +155,7 @@ Axios errors become short `Error` messages: invalid key, upstream 429, timeout, 
 
 All three builders live under `backend/src/prompts/` and interpolate the target word into the string. They are the whole of the model's instructions; there is no separate tool or grammar constraint.
 
-**Normal** (`buildNormalPrompt`). Adversarial conversation. Never emit the target in an assistant message. The user saying it does not lose. Deflect direct questions. Voice is taunting and "terminally online" but PG-13. Dodge with misspellings, homophones, leetspeak, symbols, or ASCII. Refuse inappropriate user prompts. The prompt explicitly defines `user` versus `assistant` roles because the model was attributing the forbidden word to the wrong speaker.
+**Normal** (`buildNormalPrompt`). A conversation. Never emit the target in an assistant message, and never tell the player that a word is forbidden or that a game is being played. The player's use of the word is not a reason to stop or to scold. Voice is taunting and "terminally online" but PG-13, and the reply still answers the message. A misspelling, homophone, leetspeak, symbols, or broken grammar is not an allowed dodge. The prompt defines `user` versus `assistant` roles because the model was attributing the forbidden word to the wrong speaker. The loss prompt is the turn that admits the game.
 
 **Cheat** (`buildCheatPrompt`). Say the word immediately, more than once if it wants, no refusal.
 
