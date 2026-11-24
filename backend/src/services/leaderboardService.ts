@@ -6,34 +6,20 @@
  */
 import pool from '../db/connection.js';
 import { asDifficulty } from '../domain/difficulty.js';
-import { LeaderboardRank } from '../domain/LeaderboardRank.js';
 import { parseStoredMessages } from '../domain/PlayerScore.js';
 import { readStoredRound } from '../domain/StoredRound.js';
 import { HttpError } from '../http/HttpError.js';
 import { countTokens } from './llm.helpers.js';
+import { MysqlLeaderboard, type BoardEntry, type BoardPage, type BoardPlace } from './MysqlLeaderboard.js';
 import type { Difficulty } from '../types.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type { Difficulty };
 
-export interface LeaderboardEntry {
-  id: number;
-  player_name: string;
-  token_count: number;
-  target_word: string;
-  difficulty: Difficulty;
-  llm_victory_message: string | null;
-  completed_at: string;
-  session_id: string | null;
-  /** Live place on this difficulty. Equal scores share it. */
-  rank?: number;
-}
+export type LeaderboardEntry = BoardEntry;
 
-export interface RankResult {
-  rank: number;
-  total: number;
-}
+export type RankResult = BoardPlace;
 
 export interface SubmitResult {
   id: number;
@@ -50,66 +36,23 @@ export interface LeaderboardStats {
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
-export interface LeaderboardPage {
-  entries: LeaderboardEntry[];
-  hasMore: boolean;
-}
-
-const MAX_PAGE_SIZE = 100;
-const MAX_OFFSET = 10_000;
+export type LeaderboardPage = BoardPage;
 
 /**
- * One page of leaderboard rows, best score first.
- * `limit` and `offset` are clamped and inlined as integers.
- * Fetches one extra row to report whether another page exists.
+ * One page of one difficulty's board, best score first.
+ * `limit` and `offset` are clamped inside the board module.
  */
 export async function getEntries(
   limit: number,
   offset = 0,
   difficulty: Difficulty,
 ): Promise<LeaderboardPage> {
-  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), MAX_PAGE_SIZE));
-  const safeOffset = Math.max(0, Math.min(Math.trunc(offset), MAX_OFFSET));
-
-  const [rows] = await pool.execute(
-    `SELECT l.id, l.player_name, l.token_count, l.target_word, l.difficulty,
-            l.llm_victory_message, l.completed_at, l.session_id,
-            (SELECT COUNT(*) FROM leaderboard AS better
-              WHERE better.difficulty = l.difficulty
-                AND better.token_count < l.token_count) + 1 AS entry_rank
-       FROM leaderboard AS l
-      WHERE l.difficulty = ?
-      ORDER BY l.token_count ASC, l.completed_at ASC
-      LIMIT ${safeLimit + 1} OFFSET ${safeOffset}`,
-    [difficulty],
-  );
-  const found = (rows as Array<LeaderboardEntry & { entry_rank: number }>).map((row) => {
-    const { entry_rank, ...entry } = row;
-    return { ...entry, rank: Number(entry_rank) };
-  });
-  const hasMore = found.length > safeLimit && safeOffset < MAX_OFFSET;
-  return { entries: found.slice(0, safeLimit), hasMore };
+  return new MysqlLeaderboard(pool).page(difficulty, limit, offset);
 }
 
-/**
- * Calculate the place a given token count would take on one difficulty.
- */
+/** The place a score would take on this difficulty right now. */
 export async function getRank(tokenCount: number, difficulty: Difficulty): Promise<RankResult> {
-  const difficultyClause = ' AND difficulty = ?';
-  const params: unknown[] = [tokenCount, difficulty, difficulty];
-
-  const [rows] = await pool.execute(
-    `SELECT
-       (SELECT COUNT(*) FROM leaderboard WHERE token_count < ?${difficultyClause}) AS better,
-       (SELECT COUNT(*) FROM leaderboard${difficulty ? ' WHERE difficulty = ?' : ''}) AS total`,
-    params,
-  );
-  const row = (rows as any[])[0]!;
-  const ranked = new LeaderboardRank(Number(row.better ?? 0));
-  return {
-    rank: ranked.place,
-    total: Number(row.total ?? 0),
-  };
+  return new MysqlLeaderboard(pool).place(tokenCount, difficulty);
 }
 
 export interface SessionScoreResult extends SubmitResult {
@@ -190,13 +133,7 @@ export async function submitSessionScore(
       [difficulty, sessionId],
     );
 
-    const [rankRows] = await connection.execute(
-      `SELECT COUNT(*) AS better
-         FROM leaderboard
-        WHERE token_count < ? AND difficulty = ?`,
-      [tokenCount, difficulty],
-    );
-    const rank = new LeaderboardRank(Number((rankRows as any[])[0]?.better ?? 0)).place;
+    const { rank } = await new MysqlLeaderboard(connection).place(tokenCount, difficulty);
 
     await connection.commit();
     recordWordWin(targetWord, tokenCount);
