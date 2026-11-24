@@ -1,15 +1,15 @@
 /**
- * Auth API — passphrase verification.
+ * Auth API.
  *
- * NOTE: verifyPassphrase intentionally bypasses apiClient.fetch so it can
- * post the passphrase in the request body *before* the client has stored it.
- * Once the server confirms it is valid, the client is updated.
+ * verify posts the passphrase once. The server answers with an HttpOnly cookie.
+ * Later calls rely on that cookie via credentials: 'include'.
  */
 import { apiClient } from './client';
 
 export async function verifyPassphrase(passphrase: string): Promise<void> {
   const response = await window.fetch(`${apiClient.baseUrl}/api/auth/verify`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passphrase }),
   });
@@ -19,7 +19,21 @@ export async function verifyPassphrase(passphrase: string): Promise<void> {
   if (!response.ok || !data.success) {
     throw new Error('Invalid passphrase');
   }
+}
 
-  // Store for all subsequent authenticated requests
-  apiClient.setPassphrase(passphrase);
+/** 200 when the access cookie is still valid for this month. */
+export async function checkSession(): Promise<void> {
+  const response = await window.fetch(`${apiClient.baseUrl}/api/auth/me`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error('Not signed in');
+  }
+}
+
+export async function logout(): Promise<void> {
+  await window.fetch(`${apiClient.baseUrl}/api/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
 }

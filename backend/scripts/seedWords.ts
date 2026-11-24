@@ -2,13 +2,11 @@
  * Seed script — populates the target_words table from the word CSV files.
  *
  * Usage (from the backend directory):
- *   npx ts-node --esm scripts/seedWords.ts
- *   -- or --
- *   node --loader ts-node/esm scripts/seedWords.ts
+ *   npx tsx scripts/seedWords.ts
  *
  * Each CSV file (words/<difficulty>.csv) must have a single column named "word".
- * Words are inserted or ignored on duplicate to allow re-running safely.
- * The script also re-activates any words that were previously deactivated.
+ * A word that already exists keeps its current difficulty. Re-running the
+ * script reactivates it. List a spelling in only one CSV.
  */
 
 import fs from 'fs';
@@ -59,7 +57,7 @@ async function seed(): Promise<void> {
         const [result] = await pool.execute(
           `INSERT INTO target_words (word, difficulty, is_active)
            VALUES (?, ?, TRUE)
-           ON DUPLICATE KEY UPDATE difficulty = VALUES(difficulty), is_active = TRUE`,
+           ON DUPLICATE KEY UPDATE is_active = TRUE`,
           [word, difficulty],
         ) as any[];
         if (result.affectedRows === 1) inserted++;

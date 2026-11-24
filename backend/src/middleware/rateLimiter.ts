@@ -1,8 +1,9 @@
 /**
  * Rate-limiting middleware
  *
- * Two separate in-memory buckets:
- *  - `general`  — 100 requests / 60 s  per IP  (all endpoints)
+ * Three separate in-memory buckets:
+ *  - `auth`     — 10 requests / 60 s per IP   (POST /api/auth/verify only)
+ *  - `general`  — 100 requests / 60 s per IP  (everything else)
  *  - `reroll`   — 1 000 requests / 3 600 s per IP  (POST /api/target-word/reroll only)
  *
  * Swap RateLimiterMemory for RateLimiterRedis here if the app ever scales
@@ -11,6 +12,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 
+const authLimiter    = new RateLimiterMemory({ points: 10,   duration: 60   });
 const generalLimiter = new RateLimiterMemory({ points: 100,  duration: 60   });
 const rerollLimiter  = new RateLimiterMemory({ points: 1000, duration: 3600 });
 
@@ -24,8 +26,11 @@ export async function rateLimitMiddleware(
   next: NextFunction,
 ): Promise<void> {
   const key = req.ip ?? 'unknown';
-  const isReroll = req.method === 'POST' && req.path === '/api/target-word/reroll';
-  const limiter  = isReroll ? rerollLimiter : generalLimiter;
+  const limiter = req.method === 'POST' && req.path === '/api/target-word/reroll'
+    ? rerollLimiter
+    : req.method === 'POST' && req.path === '/api/auth/verify'
+      ? authLimiter
+      : generalLimiter;
 
   try {
     await limiter.consume(key);

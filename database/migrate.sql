@@ -104,6 +104,46 @@ BEGIN
     ALTER TABLE target_words ADD COLUMN min_tokens_to_win INT DEFAULT NULL AFTER max_tokens_to_win;
   END IF;
 
+  -- game_sessions: score can be recorded only once
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'game_sessions' AND column_name = 'score_submitted'
+  ) THEN
+    ALTER TABLE game_sessions ADD COLUMN score_submitted BOOLEAN NOT NULL DEFAULT FALSE AFTER completed;
+  END IF;
+
+  -- game_sessions: a decline keeps the conversation and refuses a later commit
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'game_sessions' AND column_name = 'declined'
+  ) THEN
+    ALTER TABLE game_sessions ADD COLUMN declined BOOLEAN NOT NULL DEFAULT FALSE AFTER score_submitted;
+  END IF;
+
+  -- leaderboard: link a row to the session that produced it
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'leaderboard' AND column_name = 'session_id'
+  ) THEN
+    ALTER TABLE leaderboard ADD COLUMN session_id VARCHAR(255) NULL AFTER completed_at;
+  END IF;
+
+  -- leaderboard: one score row per session (multiple NULLs stay allowed)
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'leaderboard' AND index_name = 'uniq_leaderboard_session'
+  ) THEN
+    ALTER TABLE leaderboard ADD UNIQUE KEY uniq_leaderboard_session (session_id);
+  END IF;
+
+  -- leaderboard: composite lookup used by per-difficulty rank
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.statistics
+    WHERE table_schema = DATABASE() AND table_name = 'leaderboard' AND index_name = 'idx_diff_tokens'
+  ) THEN
+    ALTER TABLE leaderboard ADD INDEX idx_diff_tokens (difficulty, token_count);
+  END IF;
+
 END$$
 DELIMITER ;
 

@@ -1,211 +1,95 @@
-# Development & Implementation Plan
+# Development and implementation plan
 
-*Last updated: June 2026*
+*Last reviewed against the source: 26 September 2026.*
 
----
-
-## Tech Stack
-
-### Frontend
-
-| Technology | Role |
-|---|---|
-| **React 19 + TypeScript** | SPA framework — strong typing, large ecosystem, industry standard |
-| **Zustand** (with `persist` middleware) | Lightweight global state — game session, UI preferences |
-| **Framer Motion** | Page slide transitions, win animations, dialog enter/exits |
-| **Tailwind CSS** | Utility-first styling, `dark:` prefix for full dark-mode support |
-| **tiktoken** (frontend, character-ratio fallback) | Live token estimate in the input field |
-
-### Backend
-
-| Technology | Role |
-|---|---|
-| **Node.js + TypeScript** | Runtime — chosen for ecosystem fit with the frontend and LLM tooling |
-| **Express** | HTTP server, middleware composition, SSE streaming |
-| **mysql2** | MySQL connection pool with prepared statements |
-| **axios** | HTTP client for DeepSeek API requests |
-| **tiktoken** (backend, authoritative) | Accurate server-side token counting before DB writes |
-| **rate-limiter-flexible** | Per-IP in-memory rate limiting (swappable to Redis) |
-| **tsx** | TypeScript execution in development without a compile step |
-
-> **Why Node over ASP.NET?** My original plan called for ASP.NET Core (C#). During early implementation I found that the Node/TypeScript stack offered tighter integration with the LLM tooling (tiktoken, SSE, axios) and kept the codebase in a single language end-to-end. I traded the familiarity of .NET for faster iteration and a more cohesive portfolio piece.
-
-### Database
-
-- **MySQL 8.0** — ACID-compliant, familiar, strong JSON and full-text support for future features.
-- Schema lives in `database/schema.mysql`. Migrations are handled by `database/migrate.cjs` (idempotent, safe to re-run).
-
-### LLM
-
-- **DeepSeek API** (`deepseek-chat` model) — primary. The abstraction lives entirely in `backend/src/services/llm.ts` + `llm.helpers.ts`; swapping to OpenAI or a local model requires changing only those two files and the relevant `.env` vars.
+This file used to mix three eras: the original .NET proposal, a week-by-week plan, and a "remaining work" list that described features already present in the tree. Those are separated below. Behavior and schema detail live in [Overview](Overview.md), [Gameplay](Gameplay.md), and [Architecture](Architecture.md). Defects live in [Issues](Issues.md).
 
 ---
 
-## Architecture
+## Stack that shipped
 
-```
-frontend/  (React SPA, port 3000)
-    └── src/
-        ├── components/          UI components
-        ├── hooks/               useChatLogic, useBottomBar, usePageTransitions
-        ├── store/               useGameStore, useUIStore (Zustand)
-        ├── styles/              chatLayout.ts (shared layout constants)
-        └── utils/api/           typed wrappers for every backend endpoint
-
-backend/   (Express, port 3001)
-    └── src/
-        ├── config/              env.ts (validated env vars), llm.ts (LLM params)
-        ├── db/                  connection.ts (pool), init.ts (schema bootstrap)
-        ├── middleware/          passphrase.ts (auth gate), rateLimiter.ts
-        ├── prompts/             normalPrompt, cheatPrompt, lossPrompt
-        ├── routes/              index.ts, targetWord.ts, chat.ts, leaderboard.ts
-        ├── services/            llm.ts (streaming), llm.helpers.ts, chatOrchestrator.ts,
-        │                        sessionService.ts, leaderboardService.ts
-        └── types.ts             Difficulty, VALID_DIFFICULTIES
-
-database/
-    ├── schema.mysql             Full CREATE TABLE definitions
-    ├── migrate.sql              Idempotent ALTER TABLE migration script
-    └── migrate.cjs              Node runner for migrate.sql
-
-backend/words/
-    ├── easy.csv
-    ├── normal.csv
-    ├── hard.csv
-    └── nightmare.csv
-```
-
----
-
-## Security
-
-| Concern | Implementation |
-|---|---|
-| **Access gate** | Monthly rolling passphrase `{PASSPHRASE_NAME}{Month}{Year}` validated server-side on every protected request via `x-passphrase` header. `PASSPHRASE_NAME` is an env var (default `"Adam"`). |
-| **Rate limiting** | `rate-limiter-flexible` — 100 req / 60 s general; 1 000 req / 3 600 s on the reroll endpoint. Swap `RateLimiterMemory` → `RateLimiterRedis` with no other changes when scaling. |
-| **API key safety** | `DEEPSEEK_API_KEY` and all secrets live in `backend/.env` (gitignored). `config/env.ts` validates presence at startup and exits immediately if a placeholder value is detected. |
-| **SQL injection** | All user-supplied values are bound parameters via `mysql2` prepared statements. The one exception (`OFFSET`) is sanitised to an integer via `Math.trunc()` before inlining. |
-| **Input sanitisation** | Target word difficulty is validated against `VALID_DIFFICULTIES` before any DB query. Player name is trimmed and length-capped in the frontend before submission. |
-| **Duplicate score prevention** | `score_submitted` boolean on `game_sessions`; a `sessionId` returning `score_submitted = TRUE` receives **409 Conflict** — no second leaderboard row is ever inserted. |
-
----
-
-## Data Model (key tables)
-
-### `target_words`
-| Column | Type | Notes |
+| Layer | Choice | Why it stayed |
 |---|---|---|
-| `id` | INT PK | |
-| `word` | VARCHAR(100) UNIQUE | |
-| `difficulty` | ENUM('easy','normal','hard','nightmare') | |
-| `is_active` | BOOL | Soft-delete support |
-| `assignment_count` | INT | Incremented each time the word is assigned to a player |
-| `reroll_count` | INT | Incremented when a player rerolls off the word with no messages sent |
-| `total_games_played` | INT | Incremented on first message in a session with this word |
-| `win_count` | INT | Incremented on a win |
-| `avg_tokens_to_win` | DECIMAL(10,2) | Running average |
-| `max_tokens_to_win` | INT | |
-| `min_tokens_to_win` | INT | |
+| UI | React 19, TypeScript, Tailwind, Framer Motion, Zustand | One language with the server, small global store, utility CSS, animation for slides and the win |
+| Server | Node.js, Express, TypeScript | Same language, straightforward SSE, `tiktoken` and `axios` already target Node |
+| Data | MySQL 8 via `mysql2` | The database that was already chosen. Access is SQL in the service files, not an ORM |
+| Model | DeepSeek `deepseek-chat` over HTTPS, streaming | Called only from `services/llm.ts`. Vendor-specific settings are `config/llm.ts` plus the three prompt files |
 
-### `game_sessions`
-Stores one row per session. Links messages, target word, difficulty, and score submission state.
+The first plan was ASP.NET Core, Entity Framework, and a React front end, with Cloudflare in front. Node replaced .NET during implementation so the LLM client, token counter, and UI could share TypeScript. Entity Framework was never added. Cloudflare was never added. The About page previously repeated the .NET stack; it now matches this table.
 
-### `leaderboard`
-| Column | Notes |
+Create React App (`react-scripts` 5) still builds the front end. React Router DOM is installed and unused. The live draft estimate is a character ratio. `tiktoken` runs only on the server.
+
+---
+
+## What is built
+
+| Area | Status |
 |---|---|
-| `player_name` | Display name entered on win |
-| `token_count` | Authoritative server-side count |
-| `target_word` | Snapshot of the word at submission time |
-| `difficulty` | ENUM matching `target_words.difficulty` |
-| `llm_victory_message` | The full LLM response that contained the target word |
-| `completed_at` | Timestamp |
-| `session_id` | FK for duplicate guard |
+| Monthly passphrase exchanged for an HttpOnly cookie | Built |
+| Chat UI, SSE streaming, server-owned history and target word | Built |
+| Whole-word win detection, animated word, win-flow bar, name entry | Built |
+| Decline confirmation, then a locked composer until reset | Built |
+| Score post from the locked session, one row per session id | Built |
+| Jump to the leaderboard and highlight the new row, loading further pages until it appears | Built |
+| Reconstruct a win from saved messages after refresh, without clearing a submitted score | Built |
+| Dark / light mode, persisted | Built |
+| Horizontal page slides | Built |
+| Chat transcript, victory sub-state, composer draft, victory-bar name, and leaderboard tab persisted | Built |
+| Difficulty dialog, per-difficulty word fetch, per-difficulty leaderboard tabs and stats | Built |
+| Reroll before the first message, with `reroll_count` | Built. An unknown id is 404 |
+| `assignment_count` on deal, `total_games_played` on first message | Built. The games-played update shares the session insert's transaction |
+| Reset closes an unfinished server session | Built |
+| Victory excerpt, whole-word bold, edge mask, centring when the line fits | Built |
+| Word stat columns updated on submit, average using the previous win count | Built. No screen reads them |
+| Cheat mode env flag | Built |
+| In-memory rate limits, including a tighter cap on passphrase attempts | Built |
+| CSV word lists and `npx tsx scripts/seedWords.ts` | Built. A duplicate spelling keeps its existing difficulty |
+| Schema file applied on startup for missing tables | Built |
+| Env validation for a model key | Built. OpenRouter is preferred. Direct DeepSeek is the fallback |
+| GitHub Actions workflow file | Present. Both test suites run. Deploy steps do not deploy. The front-end audit is reported and does not fail the job |
 
 ---
 
-## Completed Features
+## What is not built
 
-| Feature | Status |
-|---|---|
-| Passphrase gate (monthly rotating, env-configurable) | ✅ |
-| Chat interface with SSE streaming | ✅ |
-| Server-side token counting (tiktoken) | ✅ |
-| Win detection + animated winning word | ✅ |
-| Victory bar → name entry → leaderboard navigation | ✅ |
-| Post-win leaderboard highlight scroll | ✅ |
-| Session reload win rehydration | ✅ |
-| Duplicate score prevention (409 guard) | ✅ |
-| Dark / light mode (persisted) | ✅ |
-| Horizontal page slide transitions | ✅ |
-| Interface state persistence (Zustand persist) | ✅ |
-| Difficulty selection dialog (Easy / Normal / Hard / Nightmare) | ✅ |
-| Per-difficulty target word fetch | ✅ |
-| Word reroll (no-message reset, notifies backend) | ✅ |
-| Per-difficulty leaderboard filter tabs | ✅ |
-| LLM victory message display in leaderboard entries | ✅ |
-| `LeaderboardMessage` — single-line, target word bolded, centered on first mention | ✅ |
-| Developer cheat mode (`ENABLE_CHEAT_MODE` + `CHEAT_TRIGGER` env vars) | ✅ |
-| Rate limiting (general + reroll buckets) | ✅ |
-| Word CSV files (easy, normal, hard, nightmare) | ✅ |
-| Seed script (`backend/scripts/seedWords.ts`) | ✅ |
-| Database migration script (`database/migrate.cjs`) | ✅ |
-| `PASSPHRASE_NAME` env var support | ✅ |
-| Validated env-var config (`config/env.ts`) | ✅ |
+These were either on the original plan, described as done in an older revision of this file, or implied by columns and comments that nothing calls.
+
+- Word-stat dashboard.
+- Writes to `api_usage`.
+- Routing first-time visitors to How To Play via `hasSeenGame` (the flag only changes the difficulty dialog's copy path). A fresh visit already opens there.
+- A live rank preview in the composer. The old placeholder was removed rather than wired to a request on every keystroke.
+- More than one API process, WebSockets, account login.
+- Cloudflare or any other edge proxy. Production deploy automation.
+- An integration test that boots the API. Accessibility pass beyond the labels already present.
+- Token counting that follows the selected model's own encoding. Counts stay on the gpt-4 encoding.
 
 ---
 
-## Remaining Work
+## Suggested workflow from here
 
-### Backend
-- **Target word route** — increment `assignment_count` on fetch; add `POST /api/target-word/reroll` endpoint that increments `reroll_count`
-- **Leaderboard service** — write `difficulty` + `llm_victory_message` to the DB on `submitEntry`; add `difficulty` query-param filter to `getEntries`; update word win stats (`win_count`, `avg/max/min_tokens_to_win`) on submission
-- **chatOrchestrator** — include `llmVictoryMessage` (the full LLM response text) in the `done` SSE event payload when `gameOver = true`
-- **sessionService** — increment `total_games_played` on `target_words` when a session's first message is processed
-
-### Frontend
-- **ChatPage** — integrate `DifficultyDialog` (component exists, wiring to `ChatPage` pending)
-- **useChatLogic** — pass `difficulty` on target-word fetch; capture `llmVictoryMessage` from `done` event; wire reroll API call
-
-### Database
-- Run `database/migrate.cjs` on the live DB instance to apply all column additions
+1. Restart the API after pulling this build, then sign in again. Set `OPENROUTER_API_KEY` before expecting the per-difficulty roster. Rows posted by the old client are not rewritten.
+2. Decide whether the deploy jobs should stay, and whether the Create React App audit failure should stop the workflow.
+3. A word-stat view or a second model provider can sit on the score the server now records. Neither is required for the board to mean what it says.
 
 ---
 
-## Future Directions
+## Original eight-week plan
 
-| Idea | Notes |
-|---|---|
-| **LLM provider abstraction** | `llm.ts` is already isolated — adding OpenAI or a local Ollama endpoint is a config change + one adapter |
-| **Word stats dashboard** | Use `avg/max/min_tokens_to_win`, `win_rate`, `assignment_count` to surface interesting word difficulty analytics |
-| **Hosting** | Frontend → Vercel; Backend → any Node-compatible host (Railway, Fly.io, Azure App Service); DB → PlanetScale or Azure MySQL |
-| **CI/CD** | GitHub Actions: `npm run build` + `tsc --noEmit` on PR; deploy on merge to `main` |
-| **Redis rate limiter** | Drop-in swap of `RateLimiterMemory` → `RateLimiterRedis` in `rateLimiter.ts` for multi-instance deployments |
-| **WebSocket upgrade** | SSE works well for one-directional streaming; a future multiplayer mode might warrant Socket.IO |
-| **Accessibility** | ARIA labels on interactive elements, keyboard nav for the difficulty dialog and confirm modals |
-| **Mobile polish** | Touch-friendly tap targets, virtual keyboard handling for the chat textarea |
+Kept as history. It is not a description of remaining calendar work, and it still names tools that were dropped.
 
----
-
-### **Implementation Plan**
-
-| **Week** | **Tasks** |
-| --- | --- |
-| 1 | Project setup, CI/CD, auth gate, MySQL schema. |
-| 2 | Frontend: Top ribbon, routing, dark mode. Backend: Passphrase validation. |
-| 3 | Chat UI: Bubbles, input box, token counter. |
-| 4 | Interface transitions, Zustand state persistence. |
-| 5 | Backend: LLM proxy, leaderboard API. EF Core MySQL integration. |
-| 6 | Security: Rate limiting, DDoS prep, Cloudflare config. |
-| 7 | Testing, mobile polish, deploy to Azure/Vercel. |
-| 8 | Bonus features, documentation, video demo. |
+| Week | Planned tasks | What actually happened |
+|---|---|---|
+| 1 | Project setup, CI, auth gate, MySQL schema | Repo, schema, and passphrase exist. CI is a non-deploying workflow with a failing frontend test |
+| 2 | Ribbon, routing, dark mode, passphrase | Ribbon, store-driven pages, dark mode, and passphrase exist. URL routing does not |
+| 3 | Bubbles, composer, token counter | Built. The counter the player sees is an estimate |
+| 4 | Transitions, persisted state | Built for the transcript and theme. Not for every widget |
+| 5 | LLM proxy, leaderboard API, EF Core | LLM proxy and leaderboard API exist. EF Core does not |
+| 6 | Rate limiting, DDoS preparation, Cloudflare | In-memory rate limit only |
+| 7 | Testing, mobile polish, Azure / Vercel | Layout is responsive. There is no deployment and no real test suite |
+| 8 | Bonus features, documentation, video demo | Difficulty, reroll, win animation, and this documentation pass. No video demo in the repo |
 
 ---
 
-### **Why This Tech Stack?**
+## Why the stack changed
 
-- **.NET + MySQL:** Leverages your strengths while meeting security/scale needs.
-- **React + Tailwind:** Showcases modern UI skills with minimalist design.
-- **LLM Proxy Pattern:** Highlights understanding of secure API consumption.
-- **Cloudflare:** Proactive cybersecurity—critical for portfolios.
-
-**Result:** A performant, secure, portfolio-ready app demonstrating full-stack proficiency in high-demand tools.
+.NET and MySQL were the familiar starting point, and they would have been a credible portfolio stack. The implementation moved to Node because `tiktoken`, streaming HTTP, and the React client were all TypeScript, and a second language was costing more than it was showing. MySQL stayed. The security story that remains visible to a reviewer is: the model key never reaches the browser, the secret word is not client-authoritative, queries are parameterized, and a passphrase plus a rate limit sit in front of an expensive upstream call. The story that does not hold up yet is leaderboard integrity and production hardening. Those are written as findings, not as completed work.

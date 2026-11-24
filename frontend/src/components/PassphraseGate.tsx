@@ -1,7 +1,7 @@
 /**
  * Passphrase gate component that handles authentication before allowing
  * access to the main application. Provides a simple password-based entry
- * system with session storage for persistence.
+ * system. The server keeps the credential in an HttpOnly cookie.
  *
  * Reads `isDarkMode` from the UI store so the user's previously-saved
  * preference is honoured on the login screen before they reach the app.
@@ -11,8 +11,8 @@ import { verifyPassphrase } from '../utils/api';
 import { useUIStore } from '../store';
 
 interface PassphraseGateProps {
-  /** Called with the verified passphrase so the parent can persist it. */
-  onAuthenticated: (passphrase: string) => void;
+  /** Called after the server has set the access cookie. */
+  onAuthenticated: () => void;
 }
 
 const PassphraseGate: React.FC<PassphraseGateProps> = ({ onAuthenticated }) => {
@@ -38,8 +38,7 @@ const PassphraseGate: React.FC<PassphraseGateProps> = ({ onAuthenticated }) => {
 
     try {
       await verifyPassphrase(input);
-      // Pass the verified passphrase up so App can persist it for refresh recovery
-      onAuthenticated(input);
+      onAuthenticated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection error');
     } finally {

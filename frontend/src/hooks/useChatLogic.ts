@@ -12,12 +12,12 @@
  * - Fetches the target word from /api/target-word on first render
  * - Tracks the backend session ID so conversation history is preserved server-side
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useGameStore } from '../store';
 import { useUIStore } from '../store';
 import { estimateTokenCount } from '../utils/tokenCounter';
-import { fetchTargetWord, rerollWord, sendChatMessage, fetchLeaderboardRank } from '../utils/api';
+import { abandonSession, rerollWord, sendChatMessage, fetchLeaderboardRank, targetWordDeal } from '../utils/api';
 import type { Difficulty } from '../utils/api/types';
 
 export const useChatLogic = () => {
@@ -28,7 +28,13 @@ export const useChatLogic = () => {
     addMessage,
     updateLastMessage,
     sessionTokens,
+    lockedScore,
     addSessionTokens,
+    setSessionTokens,
+    lockScore,
+    setDraft,
+    setLastUserTokenCount,
+    revertLastTurn,
     targetWord,
     targetWordId,
     setTargetWord,
@@ -39,16 +45,22 @@ export const useChatLogic = () => {
     setIsLoading,
     sessionId,
     setSessionId,
+    setVictoryState,
     isWon,
     setIsWon,
+    winningMessageId,
+    setWinningMessageId,
+    scoreSubmitted,
     wonRank,
     setWonRank,
-    setScoreSubmitted,
+    setRankUnavailable,
     resetSession,
   } = useGameStore();
 
   // Surfaced to the UI so the user can see connection problems
   const [error, setError] = useState<string | null>(null);
+  /** Set when a turn is rejected so the composer can put the draft back. */
+  const [rejectedDraft, setRejectedDraft] = useState<{ id: number; text: string } | null>(null);
 
   /**
    * Controls whether the difficulty dialog is visible.
@@ -57,23 +69,26 @@ export const useChatLogic = () => {
   const [showDifficultyDialog, setShowDifficultyDialog] = useState(!difficulty);
 
   /**
-   * On mount, check whether the persisted messages already contain a win
-   * (i.e. the user reloaded after winning but before resetting).
-   * isWon and wonRank are not persisted, so they default to false/null on
-   * every page load and must be rehydrated from the message history.
+   * A reload restores the win the server already locked. The browser does not
+   * scan the transcript to decide that a win happened. A committed round
+   * reads the current rank again. An undecided win keeps the place it stored.
    */
+  const didRestoreWin = useRef(false);
+  /** Bumped when a turn starts and when reset ends the round, so a late loss chunk cannot land on the next one. */
+  const turnGeneration = useRef(0);
   useEffect(() => {
-    if (isWon || !targetWord || messages.length === 0) return;
-    const escaped = targetWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
-    const hasWin = messages.some((m) => m.sender === 'llm' && regex.test(m.text));
-    if (hasWin) {
-      setScoreSubmitted(false);
-      setIsWon(true);
-      fetchLeaderboardRank(sessionTokens).then(setWonRank).catch(() => {});
+    if (didRestoreWin.current || lockedScore === null) return;
+    didRestoreWin.current = true;
+    if (!isWon) setIsWon(true);
+    if (!scoreSubmitted && wonRank !== null) return;
+    if (!difficulty) {
+      setRankUnavailable(true);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Intentionally mount-only — rehydrates win state from persisted messages
+    fetchLeaderboardRank(lockedScore, difficulty)
+      .then(setWonRank)
+      .catch(() => setRankUnavailable(true));
+  }, [lockedScore, isWon, scoreSubmitted, wonRank, difficulty, setIsWon, setWonRank, setRankUnavailable]);
 
   /**
    * Fetch a target word from the backend on mount (or when targetWord is empty).
@@ -97,7 +112,7 @@ export const useChatLogic = () => {
 
     async function loadTargetWord() {
       try {
-        const result = await fetchTargetWord(difficulty as Difficulty);
+        const result = await targetWordDeal.load(difficulty as Difficulty);
         if (!cancelled) setTargetWord(result.word, result.id);
       } catch (err) {
         if (!cancelled) {
@@ -122,16 +137,16 @@ export const useChatLogic = () => {
    * 3. Set loading state to show the typing indicator until the first chunk
    * 4. Open an SSE stream to POST /api/chat
    * 5. On `meta` event  → store the sessionId (first message only)
-   * 6. On `chunk` event → hide spinner, append text to placeholder
-   * 7. On `done` event  → update tokens, check win condition
+   * 6. On `chunk` event → append text to the placeholder. The reply is still in flight.
+   * 7. On `done` event  → the reply has finished; update tokens and check the win
    * 8. On `error` event → surface error to UI
    */
   const handleSubmit = async (messageText: string) => {
-    if (!messageText.trim() || isLoading) return;
+    if (!messageText.trim() || isLoading || isWon) return;
 
     if (!sessionId && targetWordId === null) {
       setError('Still loading the target word — please wait a moment and try again.');
-      fetchTargetWord()
+      targetWordDeal.load(difficulty ?? undefined)
         .then((r) => setTargetWord(r.word, r.id))
         .catch(() => {});
       return;
@@ -141,6 +156,9 @@ export const useChatLogic = () => {
 
     const trimmedMessage = messageText.trim();
     const userTokens = estimateTokenCount(trimmedMessage);
+    const hadSession = Boolean(sessionId);
+    let turnSettled = false;
+    const generation = ++turnGeneration.current;
 
     // flushSync forces React to commit these updates to the DOM synchronously
     // before the fetch starts. Without it, React 18 schedules the render via a
@@ -148,6 +166,7 @@ export const useChatLogic = () => {
     // server — the first SSE chunk would arrive before the user message
     // was painted, causing it to appear only when the LLM response began.
     flushSync(() => {
+      setDraft('');
       addMessage({ text: trimmedMessage, sender: 'user', tokenCount: userTokens });
       addSessionTokens(userTokens);
       // Add empty LLM placeholder — chunks will fill it in
@@ -161,33 +180,42 @@ export const useChatLogic = () => {
         : { targetWordId: targetWordId ?? undefined, message: trimmedMessage },
       {
         onSessionId: (id) => {
-          if (!sessionId) setSessionId(id);
+          if (!hadSession) setSessionId(id);
         },
         onChunk: (chunk) => {
-          // Hide the spinner as soon as the first character arrives
-          setIsLoading(false);
+          if (generation !== turnGeneration.current) return;
           updateLastMessage(chunk);
         },
-        onDone: ({ totalTokens, gameOver, llmVictoryMessage }) => {
+        onDone: ({ playerTokens, userTokenCount, gameOver, llmVictoryMessage }) => {
+          if (generation !== turnGeneration.current) return;
+          turnSettled = true;
           setIsLoading(false);
           if (gameOver) {
-            // Add an empty placeholder for the loss-acknowledgement message
-            // that will be filled by onLossChunk below.
+            const winning = [...useGameStore.getState().messages]
+              .reverse()
+              .find((message) => message.sender === 'llm' && message.text);
+            if (winning) setWinningMessageId(winning.id);
+            const score = typeof playerTokens === 'number' ? playerTokens : sessionTokens;
+            lockScore(score);
+            if (typeof userTokenCount === 'number') setLastUserTokenCount(userTokenCount);
+            // Placeholder for the loss acknowledgement filled by onLossChunk.
             addMessage({ text: '', sender: 'llm' });
             if (llmVictoryMessage) setVictoryMessage(llmVictoryMessage);
-            fetchLeaderboardRank(totalTokens)
-              .then((rank) => {
-                setScoreSubmitted(false);
-                setWonRank(rank);
-                setIsWon(true);
-              })
-              .catch(() => {
-                setScoreSubmitted(false);
-                setIsWon(true);
-              });
+            setVictoryState('prompt');
+            if (difficulty) {
+              fetchLeaderboardRank(score, difficulty)
+                .then(setWonRank)
+                .catch(() => setRankUnavailable(true));
+            } else {
+              setRankUnavailable(true);
+            }
+          } else if (typeof playerTokens === 'number') {
+            setSessionTokens(playerTokens);
+            if (typeof userTokenCount === 'number') setLastUserTokenCount(userTokenCount);
           }
         },
         onLossChunk: (chunk) => {
+          if (generation !== turnGeneration.current) return;
           updateLastMessage(chunk);
         },
         onLossDone: () => {
@@ -195,7 +223,13 @@ export const useChatLogic = () => {
           // is already set (or in flight) from onDone above.
         },
         onError: (err) => {
+          if (generation !== turnGeneration.current) return;
           setIsLoading(false);
+          if (!turnSettled) {
+            revertLastTurn(userTokens);
+            if (!hadSession) setSessionId(null);
+            setRejectedDraft({ id: Date.now(), text: trimmedMessage });
+          }
           setError(err.message);
         },
       }
@@ -209,6 +243,8 @@ export const useChatLogic = () => {
    * Always available — no messages required.
    */
   const handleReset = () => {
+    // A reply already on its way can still win. Reset waits until it finishes.
+    if (isLoading) return;
     setShowDifficultyDialog(true);
   };
 
@@ -219,13 +255,18 @@ export const useChatLogic = () => {
    * new difficulty so the word-fetch effect fires immediately.
    */
   const handleDifficultyConfirm = (chosenDifficulty: Difficulty) => {
+    if (useGameStore.getState().isLoading) return;
+    turnGeneration.current += 1;
     setShowDifficultyDialog(false);
     if (!hasSeenGame) {
       // First visit: just set difficulty, stay on chat
       setHasSeenGame();
       setDifficulty(chosenDifficulty);
     } else {
-      // Reset path: clear session then restore difficulty
+      // Reset path: close the server session, then clear local state.
+      if (sessionId) {
+        abandonSession(sessionId).catch(() => {});
+      }
       resetSession();
       setDifficulty(chosenDifficulty);
     }
@@ -261,8 +302,10 @@ export const useChatLogic = () => {
     handleDifficultyConfirm,
     isLoading,
     isWon,
+    winningMessageId,
     wonRank,
     error,
+    rejectedDraft,
     handleSubmit,
     handleReset,
     handleReroll,

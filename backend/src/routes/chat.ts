@@ -10,14 +10,14 @@
  */
 import express from 'express';
 import type { Request, Response } from 'express';
-import { resolveSession, getSessionById } from '../services/sessionService.js';
+import { CHAT_MESSAGE_MAX_LENGTH } from '../domain/limits.js';
+import { clientErrorMessage, clientStatusCode, HttpError } from '../http/HttpError.js';
+import { abandonSession, declineSession, resolveSession } from '../services/sessionService.js';
+import { sessionTurnGate } from '../services/SessionTurnGate.js';
 import { runTurn } from '../services/chatOrchestrator.js';
 
 const router = express.Router();
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const SESSION_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
 // ─── POST /api/chat ───────────────────────────────────────────────────────────
 
@@ -42,13 +42,37 @@ router.post('/', async (req: Request, res: Response) => {
   if (!message || typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ error: 'message is required and must be a non-empty string' });
   }
+  const trimmed = message.trim();
+  if (trimmed.length > CHAT_MESSAGE_MAX_LENGTH) {
+    return res.status(400).json({
+      error: `message must be ${CHAT_MESSAGE_MAX_LENGTH} characters or fewer`,
+    });
+  }
+
+  let release: (() => void) | undefined;
+  const hold = (sessionId: string): void => {
+    if (!sessionTurnGate.tryAcquire(sessionId)) {
+      throw new HttpError(409, 'This game is already waiting on a reply.');
+    }
+    release = () => {
+      sessionTurnGate.release(sessionId);
+      release = undefined;
+    };
+  };
 
   let session;
   try {
-    session = await resolveSession(providedSessionId, targetWordId, message.trim());
+    if (typeof providedSessionId === 'string' && SESSION_ID_PATTERN.test(providedSessionId)) {
+      hold(providedSessionId);
+    }
+    session = await resolveSession(providedSessionId, targetWordId, trimmed);
+    if (!release) hold(session.sessionId);
   } catch (err) {
-    const status = (err as any).statusCode ?? 500;
-    return res.status(status).json({ error: getErrorMessage(err) });
+    release?.();
+    if (!(err instanceof HttpError)) console.error('Failed to resolve chat session:', err);
+    return res.status(clientStatusCode(err)).json({
+      error: clientErrorMessage(err, 'Failed to start this turn'),
+    });
   }
 
   // Start SSE — send sessionId immediately so the client can persist it
@@ -64,25 +88,56 @@ router.post('/', async (req: Request, res: Response) => {
       sessionData:    session.sessionData,
       storedMessages: session.storedMessages,
       llmMessages:    session.llmMessages,
-      userMessage:    message.trim(),
+      userMessage:    trimmed,
+      difficulty:     session.difficulty,
     });
   } catch (err) {
-    res.write(`event: error\ndata: ${JSON.stringify({ error: getErrorMessage(err) })}\n\n`);
+    if (!(err instanceof HttpError)) console.error('Chat turn failed:', err);
+    const publicError = clientErrorMessage(err, 'The model could not complete this turn');
+    res.write(`event: error\ndata: ${JSON.stringify({ error: publicError })}\n\n`);
+  } finally {
+    release?.();
+    res.end();
   }
-
-  res.end();
 });
 
-// ─── GET /api/chat/session/:sessionId ────────────────────────────────────────
-
-router.get('/session/:sessionId', async (req: Request, res: Response) => {
+/**
+ * POST /api/chat/abandon
+ * Marks an unfinished session complete when the player resets.
+ * Body: { sessionId: string }
+ */
+router.post('/abandon', async (req: Request, res: Response) => {
+  const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    return res.status(400).json({ error: 'sessionId is invalid' });
+  }
   try {
-    const session = await getSessionById(req.params.sessionId!);
-    if (!session) return res.status(404).json({ error: 'Session not found' });
-    res.json(session);
+    await abandonSession(sessionId);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Error fetching session:', err);
-    res.status(500).json({ error: 'Failed to fetch session', message: getErrorMessage(err) });
+    console.error('Error abandoning session:', err);
+    res.status(500).json({ error: 'Failed to abandon session' });
+  }
+});
+
+/**
+ * POST /api/chat/decline
+ * Records a decline. The conversation stays, and a later commit is refused.
+ * Body: { sessionId: string }
+ */
+router.post('/decline', async (req: Request, res: Response) => {
+  const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId : '';
+  if (!SESSION_ID_PATTERN.test(sessionId)) {
+    return res.status(400).json({ error: 'sessionId is invalid' });
+  }
+  try {
+    await declineSession(sessionId);
+    res.json({ success: true });
+  } catch (err) {
+    if (!(err instanceof HttpError)) console.error('Error declining session:', err);
+    res.status(clientStatusCode(err)).json({
+      error: clientErrorMessage(err, 'Failed to decline this round'),
+    });
   }
 });
 

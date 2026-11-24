@@ -40,10 +40,6 @@ const MessageTextarea: React.FC<MessageTextareaProps> = ({
 
   /**
    * Auto-focus when component becomes enabled
-   * 
-   * UX IMPROVEMENT:
-   * - After LLM responds, cursor returns to input automatically
-   * - User can continue typing without clicking
    */
   useEffect(() => {
     if (!isDisabled && textareaRef.current) {

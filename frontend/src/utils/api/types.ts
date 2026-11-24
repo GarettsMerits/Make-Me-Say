@@ -41,7 +41,14 @@ export interface ChatRequest {
 export interface ChatDonePayload {
   sessionId: string;
   tokenCount: number;
+  /** tiktoken count of the player message that just finished. */
+  userTokenCount: number;
   totalTokens: number;
+  /**
+   * Player tokens for this round. After a win this is the locked score.
+   * Before that it is the sent-message portion of the token preview.
+   */
+  playerTokens: number;
   gameOver: boolean;
   targetWordDetected: boolean;
   /** The LLM message that contained the target word (only present when gameOver=true). */
@@ -75,26 +82,26 @@ export interface LeaderboardEntry {
   llm_victory_message: string | null;
   completed_at: string;
   session_id: string | null;
+  /** Live place on this difficulty. Equal scores share it. */
+  rank: number;
 }
 
 export interface LeaderboardResponse {
   leaderboard: LeaderboardEntry[];
   count: number;
+  hasMore: boolean;
 }
 
 export interface SubmitScoreRequest {
   playerName: string;
-  tokenCount: number;
-  targetWord: string;
-  difficulty: Difficulty;
-  llmVictoryMessage?: string | null;
-  sessionId?: string;
+  sessionId: string;
 }
 
 export interface SubmitScoreResponse {
   success: boolean;
   id: number;
   rank: number;
+  tokenCount: number;
   message: string;
 }
 

@@ -5,6 +5,8 @@
  * be tested independently without making any network calls.
  */
 import { encoding_for_model } from 'tiktoken';
+import { TargetWordMatcher } from '../domain/TargetWordMatcher.js';
+import { HttpError } from '../http/HttpError.js';
 import { buildNormalPrompt } from '../prompts/normalPrompt.js';
 import { buildCheatPrompt }  from '../prompts/cheatPrompt.js';
 import { buildLossPrompt }   from '../prompts/lossPrompt.js';
@@ -31,14 +33,9 @@ export function freeEncoder(): void {
 
 // ─── Target-word detection ────────────────────────────────────────────────────
 
-/** Escape regex metacharacters so a plain string is safe inside a RegExp. */
-export function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /** Case-insensitive whole-word match. */
 export function containsTargetWord(text: string, targetWord: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(targetWord)}\\b`, 'i').test(text);
+  return new TargetWordMatcher(targetWord).appearsIn(text);
 }
 
 // ─── System prompt selection ──────────────────────────────────────────────────
@@ -61,11 +58,12 @@ export function buildSystemPrompt(options: ChatCompletionOptions): string {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-/** Standard Authorization + Content-Type headers for every DeepSeek request. */
-export function buildAuthHeaders(apiKey: string): Record<string, string> {
+/** Authorization headers, plus any provider-specific extras. */
+export function buildAuthHeaders(apiKey: string, extra: Record<string, string> = {}): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${apiKey}`,
+    ...extra,
   };
 }
 
@@ -81,12 +79,12 @@ type AxiosLike = {
  * Convert an axios error (or any unknown throw) into a typed Error with a
  * developer-friendly message.
  */
-export function normaliseApiError(error: unknown): Error {
+export function normaliseApiError(error: unknown): HttpError {
   const e = error as AxiosLike;
   const status = e.response?.status;
 
-  if (status === 401) return new Error('Invalid API key — check DEEPSEEK_API_KEY in .env');
-  if (status === 429) return new Error('DeepSeek rate limit exceeded — please retry later');
-  if (e.code === 'ECONNABORTED') return new Error('LLM request timed out');
-  return new Error(`LLM service error: ${e.message ?? 'unknown'}`);
+  if (status === 401) return new HttpError(502, 'The model rejected the server API key');
+  if (status === 429) return new HttpError(503, 'The model is rate limiting requests — try again shortly');
+  if (e.code === 'ECONNABORTED') return new HttpError(504, 'The model took too long to respond');
+  return new HttpError(502, 'The model could not complete this turn');
 }

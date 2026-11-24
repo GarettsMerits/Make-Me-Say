@@ -26,3 +26,6 @@ export interface ChatMessage {
  * - Easy to add new pages (just update here)
  */
 export type PageType = 'chat' | 'leaderboard' | 'about' | 'howtoplay';
+
+/** Win-flow bar steps. Lives in the game store so it survives leaving the chat page. */
+export type VictoryState = 'prompt' | 'enter' | 'declined';

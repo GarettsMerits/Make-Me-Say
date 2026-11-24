@@ -1,13 +1,18 @@
-// Run with: node database/migrate.js
-const mysql = require("z:/Projects/dont-make-me-say/backend/node_modules/mysql2/promise");
+// Idempotent schema updates for an existing database.
+// Credentials come from backend/.env. Run from the repo root:
+//   node database/migrate.cjs
+const path = require('path');
+const dotenv = require(path.join(__dirname, '../backend/node_modules/dotenv'));
+const mysql = require(path.join(__dirname, '../backend/node_modules/mysql2/promise'));
+
+dotenv.config({ path: path.join(__dirname, '../backend/.env') });
 
 const config = {
-  host: "localhost",
-  port: 3306,
-  user: "root",
-  password: "password",
-  database: "dont_make_me_say",
-  multipleStatements: true,
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '3306', 10),
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'dont_make_me_say',
 };
 
 async function columnExists(conn, table, column) {
@@ -105,6 +110,26 @@ async function run() {
       desc: "target_words.min_tokens_to_win",
       check: () => columnExists(conn, "target_words", "min_tokens_to_win"),
       sql: "ALTER TABLE target_words ADD COLUMN min_tokens_to_win INT DEFAULT NULL AFTER max_tokens_to_win",
+    },
+    {
+      desc: "game_sessions.score_submitted",
+      check: () => columnExists(conn, "game_sessions", "score_submitted"),
+      sql: "ALTER TABLE game_sessions ADD COLUMN score_submitted BOOLEAN NOT NULL DEFAULT FALSE AFTER completed",
+    },
+    {
+      desc: "game_sessions.declined",
+      check: () => columnExists(conn, "game_sessions", "declined"),
+      sql: "ALTER TABLE game_sessions ADD COLUMN declined BOOLEAN NOT NULL DEFAULT FALSE AFTER score_submitted",
+    },
+    {
+      desc: "leaderboard.session_id",
+      check: () => columnExists(conn, "leaderboard", "session_id"),
+      sql: "ALTER TABLE leaderboard ADD COLUMN session_id VARCHAR(255) NULL AFTER completed_at",
+    },
+    {
+      desc: "leaderboard uniq_leaderboard_session",
+      check: () => indexExists(conn, "leaderboard", "uniq_leaderboard_session"),
+      sql: "ALTER TABLE leaderboard ADD UNIQUE KEY uniq_leaderboard_session (session_id)",
     },
   ];
 

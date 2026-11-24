@@ -6,6 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from './connection.js';
+import { SqlScript } from './SqlScript.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,11 +22,7 @@ export async function initializeDatabase(): Promise<void> {
     const schemaPath = path.join(__dirname, '../../../database/schema.mysql');
     const schema = await fs.readFile(schemaPath, 'utf-8');
     
-    // Split into individual statements (removing comments and empty lines)
-    const statements = schema
-      .split(';')
-      .map(stmt => stmt.trim())
-      .filter(stmt => stmt.length > 0 && !stmt.startsWith('--'));
+    const statements = new SqlScript(schema).statements();
     
     // Execute each statement
     for (const statement of statements) {

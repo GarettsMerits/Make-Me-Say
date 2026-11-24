@@ -9,30 +9,19 @@
  * 4. Sides that overflow are faded with a gradient mask.
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { TargetWordMatcher } from '../../utils/TargetWordMatcher';
 
 interface LeaderboardMessageProps {
   message: string;
   targetWord: string;
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Split the message text into segments: plain text and bold (target word) matches.
- */
-function segmentMessage(
-  message: string,
-  targetWord: string,
-): Array<{ text: string; bold: boolean }> {
-  const regex = new RegExp(`(${escapeRegExp(targetWord)})`, 'gi');
-  const parts = message.split(regex);
-  const lowerTarget = targetWord.toLowerCase();
-  return parts.map((part) => ({
-    text: part,
-    bold: part.toLowerCase() === lowerTarget,
-  }));
+/** Fade the text itself so the mask matches whatever row colour is behind it. */
+function edgeMask(left: boolean, right: boolean): string | undefined {
+  if (!left && !right) return undefined;
+  const start = left ? 'transparent, #000 2.5rem' : '#000 0';
+  const end = right ? '#000 calc(100% - 2.5rem), transparent' : '#000 100%';
+  return `linear-gradient(to right, ${start}, ${end})`;
 }
 
 const LeaderboardMessage: React.FC<LeaderboardMessageProps> = ({ message, targetWord }) => {
@@ -40,10 +29,9 @@ const LeaderboardMessage: React.FC<LeaderboardMessageProps> = ({ message, target
   const contentRef    = useRef<HTMLSpanElement>(null);
   const targetRef     = useRef<HTMLSpanElement>(null);
 
-  const [showLeftFade,  setShowLeftFade]  = useState(false);
-  const [showRightFade, setShowRightFade] = useState(false);
+  const [edges, setEdges] = useState({ left: false, right: false, fits: false });
 
-  const segments = segmentMessage(message, targetWord);
+  const segments = new TargetWordMatcher(targetWord).split(message);
 
   // After mount (and on resize), position the scroll so the first target-word
   // occurrence is horizontally centered in the container.
@@ -51,16 +39,15 @@ const LeaderboardMessage: React.FC<LeaderboardMessageProps> = ({ message, target
     const container = containerRef.current;
     const content   = contentRef.current;
     const target    = targetRef.current;
-    if (!container || !content || !target) return;
+    if (!container || !content) return;
 
     const containerWidth = container.clientWidth;
     const contentWidth   = content.scrollWidth;
 
-    if (contentWidth <= containerWidth) {
-      // Entire message fits — center the whole text block
+    if (!target || contentWidth <= containerWidth) {
       container.scrollLeft = 0;
-      setShowLeftFade(false);
-      setShowRightFade(false);
+      const overflows = contentWidth > containerWidth;
+      setEdges({ left: false, right: overflows, fits: !overflows });
       return;
     }
 
@@ -73,34 +60,28 @@ const LeaderboardMessage: React.FC<LeaderboardMessageProps> = ({ message, target
 
     container.scrollLeft = scrollLeft;
 
-    setShowLeftFade(scrollLeft > 0);
-    setShowRightFade(scrollLeft < maxScroll);
+    setEdges({
+      left: scrollLeft > 1,
+      right: scrollLeft < maxScroll - 1,
+      fits: false,
+    });
   }, [message, targetWord]);
+
+  const mask = edgeMask(edges.left, edges.right);
 
   return (
     <div className="relative w-full overflow-hidden" style={{ minWidth: 0 }}>
-      {/* Fade mask — left */}
-      {showLeftFade && (
-        <div
-          className="pointer-events-none absolute inset-y-0 left-0 w-10 z-10"
-          style={{
-            background: 'linear-gradient(to right, var(--leaderboard-fade-color, rgb(30 30 30)), transparent)',
-          }}
-        />
-      )}
-
-      {/* Scrollable single-line text strip */}
       <div
         ref={containerRef}
-        className="overflow-x-hidden whitespace-nowrap text-xs text-gray-500 dark:text-gray-400"
+        className={`overflow-x-hidden whitespace-nowrap text-xs text-gray-500 dark:text-gray-400 ${edges.fits ? 'text-center' : ''}`}
+        style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
       >
         <span ref={contentRef}>
           {segments.map((seg, i) => {
-            if (!seg.bold) {
+            if (!seg.isMatch) {
               return <span key={i}>{seg.text}</span>;
             }
-            // Attach targetRef to the very first bold segment
-            const isFirst = segments.slice(0, i).every((s) => !s.bold);
+            const isFirst = segments.slice(0, i).every((part) => !part.isMatch);
             return (
               <strong
                 key={i}
@@ -113,16 +94,6 @@ const LeaderboardMessage: React.FC<LeaderboardMessageProps> = ({ message, target
           })}
         </span>
       </div>
-
-      {/* Fade mask — right */}
-      {showRightFade && (
-        <div
-          className="pointer-events-none absolute inset-y-0 right-0 w-10 z-10"
-          style={{
-            background: 'linear-gradient(to left, var(--leaderboard-fade-color, rgb(30 30 30)), transparent)',
-          }}
-        />
-      )}
     </div>
   );
 };

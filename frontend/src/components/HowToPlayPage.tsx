@@ -43,8 +43,8 @@ const HowToPlayPage: React.FC = () => {
                   <span className="font-medium mr-2">1.</span>
 
                   <div>
-                    <strong>Target Word Display:</strong> You'll see the forbidden word at the top of the chat interface: 
-                    "Don't make me say [target word]"
+                    <strong>Target Word Display:</strong> You'll see the forbidden word at the top of the chat interface:
+                    "I dare you to make me say [target word]"
                   </div>
 
                 </li>
@@ -104,9 +104,9 @@ const HowToPlayPage: React.FC = () => {
 
                 <ul className="space-y-1 text-gray-700 dark:text-gray-300">
                   
-                  <li>• Token counter shows your current usage</li>
+                  <li>• The session bar counts the tokens in your messages as you play</li>
 
-                  <li>• Live prediction of your potential leaderboard position</li>
+                  <li>• Fewer tokens used to win means a better leaderboard rank</li>
 
                   <li>• Efficient strategies lead to better scores</li>
 

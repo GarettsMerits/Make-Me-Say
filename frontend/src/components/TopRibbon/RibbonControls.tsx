@@ -41,10 +41,7 @@ const RibbonControls: React.FC<RibbonControlsProps> = ({
    * - Prevents errors if parent doesn't provide this optional prop
    */
   const handleLogout = () => {
-    sessionStorage.removeItem('authenticated');
-    if (onLogout) {
-      onLogout();
-    }
+    onLogout?.();
   };
 
   return (

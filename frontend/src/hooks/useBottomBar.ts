@@ -14,16 +14,16 @@
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useGameStore, useUIStore } from '../store';
+import type { VictoryState } from '../store/types';
 import { estimateTokenCount } from '../utils/tokenCounter';
-import { submitScore } from '../utils/api';
+import { declineSession, fetchLeaderboardRank, submitScore } from '../utils/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-/** Three sequential states of the victory panel. */
-export type VictoryState = 'prompt' | 'enter' | 'declined';
+export type { VictoryState };
 
 /** Which flavour of pending confirmation is waiting for the player's response. */
-export type DialogKind = 'decline' | 'reset-victory';
+export type DialogKind = 'decline';
 
 export interface PendingDialog {
   kind:      DialogKind;
@@ -35,36 +35,70 @@ export interface UseBottomBarProps {
   onSubmit: (text: string) => void;
   /** Clears the game session and triggers a fresh target-word fetch. */
   onReset:  () => void;
+  /** Restores the composer after the server rejects a turn. */
+  rejectedDraft?: { id: number; text: string } | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useBottomBar({ onSubmit, onReset }: UseBottomBarProps) {
+export function useBottomBar({ onSubmit, onReset, rejectedDraft }: UseBottomBarProps) {
 
   // ── Store access ─────────────────────────────────────────────────────────────
   const {
-    messages, sessionTokens, targetWord, sessionId,
-    isLoading, isWon, wonRank, scoreSubmitted, setScoreSubmitted,
-    difficulty, victoryMessage,
+    sessionTokens, lockedScore, targetWord, sessionId, difficulty,
+    isLoading, isWon, wonRank, rankUnavailable, scoreSubmitted, setScoreSubmitted,
+    lockScore, setWonRank,
+    victoryState, setVictoryState,
+    draft, setDraft, setScoreName,
   } = useGameStore();
 
-  const { setCurrentPage, setPendingHighlightId } = useUIStore();
+  const { setCurrentPage, setPendingHighlightId, setLeaderboardTab } = useUIStore();
 
   // ── Message input ─────────────────────────────────────────────────────────────
-  const [inputText, setInputText] = useState('');
+  const inputText = draft;
+  const setInputText = setDraft;
 
   const inputTokens = useMemo(
     () => estimateTokenCount(inputText),
     [inputText],
   );
 
-  /** Rough live estimate of where this session's score would land. */
-  const potentialPosition = useMemo(
-    () => Math.max(1, Math.floor((sessionTokens + inputTokens) / 10)),
-    [sessionTokens, inputTokens],
-  );
+  /**
+   * The figure on screen. While a message can still be sent it is the token
+   * preview, including this draft. From the win onward it is the locked score.
+   */
+  const shownFigure = isWon
+    ? (lockedScore ?? sessionTokens)
+    : sessionTokens + (isLoading ? 0 : inputTokens);
 
-  const clearInput = useCallback(() => setInputText(''), []);
+  /**
+   * The place this token preview would take on this difficulty if the draft
+   * won. Hidden unless a non-empty draft can still be sent.
+   */
+  const [potentialPosition, setPotentialPosition] = useState<number | null>(null);
+  useEffect(() => {
+    const draftText = inputText.trim();
+    if (!draftText || isLoading || isWon || !difficulty) {
+      setPotentialPosition(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      fetchLeaderboardRank(shownFigure, difficulty)
+        .then((place) => { if (!cancelled) setPotentialPosition(place); })
+        .catch(() => { if (!cancelled) setPotentialPosition(null); });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [inputText, isLoading, isWon, difficulty, shownFigure]);
+
+  const clearInput = useCallback(() => setDraft(''), [setDraft]);
+
+  useEffect(() => {
+    if (rejectedDraft) setDraft(rejectedDraft.text);
+  }, [rejectedDraft, setDraft]);
 
   /**
    * Submit the current input text.
@@ -77,14 +111,6 @@ export function useBottomBar({ onSubmit, onReset }: UseBottomBarProps) {
     onSubmit(trimmed);
     clearInput();
   }, [inputText, onSubmit, clearInput]);
-
-  // ── Victory flow ──────────────────────────────────────────────────────────────
-  const [victoryState, setVictoryState] = useState<VictoryState>('prompt');
-
-  // Reset victory UI whenever a new win is detected (guards against stale local state)
-  useEffect(() => {
-    if (isWon) setVictoryState('prompt');
-  }, [isWon]);
 
   // ── Score submission ──────────────────────────────────────────────────────────
   /**
@@ -99,63 +125,56 @@ export function useBottomBar({ onSubmit, onReset }: UseBottomBarProps) {
    * without highlighting rather than surfacing an error to the player.
    */
   const handleScoreSubmit = useCallback(async (playerName: string): Promise<void> => {
+    if (!sessionId) {
+      throw new Error('This game has no server session, so the score cannot be saved.');
+    }
+
     let entryId: number | null = null;
 
     try {
-      const result = await submitScore({
-        playerName,
-        tokenCount: sessionTokens,
-        targetWord,
-        difficulty: difficulty ?? 'normal',
-        llmVictoryMessage: victoryMessage,
-        sessionId: sessionId ?? '',
-      });
+      const result = await submitScore({ playerName, sessionId });
       entryId = result.id;
+      lockScore(result.tokenCount);
+      setWonRank(result.rank);
     } catch (err) {
       if (err instanceof Error && err.message.includes('already submitted')) {
-        // Network retry after a successful first submission — fall through and
-        // navigate without a highlight rather than showing an error.
+        // A retry after the first insert succeeded. Leave the board without a highlight.
       } else {
-        throw err; // Surface to NameEntryBar's inline error display
+        throw err;
       }
     }
 
     setScoreSubmitted(true);
+    setScoreName('');
     if (entryId !== null) setPendingHighlightId(entryId);
+    if (difficulty) setLeaderboardTab(difficulty);
     setCurrentPage('leaderboard');
   }, [
-    sessionTokens, targetWord, sessionId,
-    setScoreSubmitted, setPendingHighlightId, setCurrentPage,
+    sessionId, difficulty,
+    setScoreSubmitted, setScoreName, lockScore, setWonRank, setPendingHighlightId, setLeaderboardTab, setCurrentPage,
   ]);
 
   // ── Dialogs ───────────────────────────────────────────────────────────────────
-  const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const [pendingDialog,   setPendingDialog]   = useState<PendingDialog | null>(null);
-
-  const openResetDialog = useCallback(() => setResetDialogOpen(true), []);
-
-  const confirmReset = useCallback(() => {
-    setResetDialogOpen(false);
-    onReset();
-    clearInput();
-  }, [onReset, clearInput]);
-
-  const cancelReset = useCallback(() => setResetDialogOpen(false), []);
+  const [pendingDialog, setPendingDialog] = useState<PendingDialog | null>(null);
 
   /** Triggered by PromptPanel's "No, thanks." — shows the decline confirmation. */
   const requestDeclineConfirm = useCallback(() => {
     setPendingDialog({
       kind:      'decline',
-      onConfirm: () => setVictoryState('declined'),
+      onConfirm: () => {
+        const id = useGameStore.getState().sessionId;
+        if (!id) return;
+        declineSession(id)
+          .then(() => setVictoryState('declined'))
+          .catch(() => {});
+      },
     });
   }, []);
 
-  /** Triggered by DeclinedPanel's Reset button — shows the new-game confirmation. */
+  /** Triggered by DeclinedPanel's Reset button — opens the difficulty/new-game dialog. */
   const requestResetConfirm = useCallback(() => {
-    setPendingDialog({
-      kind:      'reset-victory',
-      onConfirm: () => { onReset(); clearInput(); },
-    });
+    onReset();
+    clearInput();
   }, [onReset, clearInput]);
 
   const confirmPending = useCallback(() => {
@@ -171,17 +190,19 @@ export function useBottomBar({ onSubmit, onReset }: UseBottomBarProps) {
     inputText,
     setInputText,
     inputTokens,
-    potentialPosition,
     submitMessage,
 
     // Session / game state (read-only, sourced from stores)
     sessionTokens,
+    shownFigure,
+    potentialPosition,
+    scoreLocked: isWon,
     targetWord,
     isLoading,
     isWon,
     wonRank,
+    rankUnavailable,
     scoreSubmitted,
-    hasMessages: messages.length > 0,
 
     // Victory flow
     victoryState,

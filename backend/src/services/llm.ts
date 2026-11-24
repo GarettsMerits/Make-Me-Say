@@ -7,6 +7,12 @@
  */
 import axios from 'axios';
 import { LLM_CONFIG } from '../config/llm.js';
+import { modelRoster } from '../config/env.js';
+import type { Difficulty } from '../types.js';
+import { UPSTREAM_SSE_BUFFER_MAX } from '../domain/limits.js';
+import { HttpError } from '../http/HttpError.js';
+import { nextSimulatedReply } from '../sim/simulatedModel.js';
+import { LineBuffer } from './LineBuffer.js';
 import {
   buildSystemPrompt,
   buildAuthHeaders,
@@ -32,6 +38,8 @@ export interface ChatCompletionOptions {
   cheatMode?: boolean;
   /** Uses the loss prompt — LLM acknowledges its defeat. */
   lossMode?: boolean;
+  /** Selects the model configured for this difficulty. */
+  difficulty?: Difficulty;
   /** Total tokens the player used (required when lossMode is true). */
   lossTokenCount?: number;
   /** Rank the player achieved (required when lossMode is true). */
@@ -52,18 +60,24 @@ export { countTokens, containsTargetWord, freeEncoder as cleanup };
 // ─── Streaming completion ─────────────────────────────────────────────────────
 
 /**
- * Stream a chat completion from DeepSeek, yielding text delta chunks as they
- * arrive.  The caller is responsible for accumulating them into a full response.
+ * Stream a chat completion, yielding text delta chunks as they arrive.
+ * The caller is responsible for accumulating them into a full response.
  *
  * @yields Each non-empty text delta string from the stream.
  */
 export async function* streamChatCompletion(
   options: ChatCompletionOptions,
 ): AsyncGenerator<string> {
+  if (process.env.SIMULATE_MODEL === 'true') {
+    yield nextSimulatedReply(options.targetWord, Boolean(options.lossMode));
+    return;
+  }
+
   const {
     messages,
     maxTokens   = LLM_CONFIG.defaults.maxTokens,
     temperature = LLM_CONFIG.defaults.temperature,
+    difficulty = 'normal',
   } = options;
 
   const systemPrompt = buildSystemPrompt(options);
@@ -71,20 +85,22 @@ export async function* streamChatCompletion(
     { role: 'system', content: systemPrompt },
     ...messages,
   ];
+  const call = modelRoster.callFor(difficulty);
 
   let response;
   try {
     response = await axios.post(
-      `${LLM_CONFIG.apiUrl}/chat/completions`,
+      `${call.baseUrl}/chat/completions`,
       {
-        model:      LLM_CONFIG.model,
+        model:      call.model,
         messages:   messagesWithSystem,
         max_tokens: maxTokens,
         temperature,
         stream:     true,
+        ...call.bodyExtras,
       },
       {
-        headers:      buildAuthHeaders(LLM_CONFIG.apiKey),
+        headers:      buildAuthHeaders(call.apiKey, call.headers),
         responseType: 'stream',
         timeout:      LLM_CONFIG.timeouts.streaming,
       },
@@ -93,12 +109,14 @@ export async function* streamChatCompletion(
     throw normaliseApiError(error);
   }
 
-  let buffer = '';
+  const buffer = new LineBuffer(UPSTREAM_SSE_BUFFER_MAX);
   for await (const raw of response.data) {
-    buffer += (raw as Buffer).toString('utf8');
-    // A single chunk may contain multiple SSE lines
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? ''; // keep any incomplete trailing line
+    let lines: string[];
+    try {
+      lines = buffer.push((raw as Buffer).toString('utf8'));
+    } catch {
+      throw new HttpError(502, 'The model stream was malformed');
+    }
 
     for (const line of lines) {
       const trimmed = line.trim();

@@ -13,9 +13,13 @@ import type {
  * Calculate the rank a given token count would achieve on the leaderboard.
  * Returns a 1-based rank (1 = best / fewest tokens).
  */
-export async function fetchLeaderboardRank(tokenCount: number): Promise<number> {
+export async function fetchLeaderboardRank(
+  tokenCount: number,
+  difficulty: import('./types').Difficulty,
+): Promise<number> {
+  const params = new URLSearchParams({ difficulty });
   const data = await apiClient.fetch<{ rank: number }>(
-    `/api/leaderboard/rank/${encodeURIComponent(tokenCount)}`
+    `/api/leaderboard/rank/${encodeURIComponent(tokenCount)}?${params.toString()}`
   );
   return data.rank;
 }
@@ -24,13 +28,18 @@ export async function fetchLeaderboardRank(tokenCount: number): Promise<number> 
  * Fetch the top scores from the leaderboard.
  * @param limit       Max number of results to return (default: 10).
  * @param difficulty  Optional filter to show only entries from one difficulty tier.
+ * @param offset      Number of better scores to skip.
  */
 export async function fetchLeaderboard(
-  limit = 10,
-  difficulty?: import('./types').Difficulty,
+  limit: number,
+  difficulty: import('./types').Difficulty,
+  offset = 0,
 ): Promise<LeaderboardResponse> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (difficulty) params.set('difficulty', difficulty);
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    difficulty,
+  });
   return apiClient.fetch<LeaderboardResponse>(`/api/leaderboard?${params.toString()}`);
 }
 
@@ -51,6 +60,9 @@ export async function submitScore(
 /**
  * Fetch aggregate leaderboard statistics (total games, averages, popular words, etc.).
  */
-export async function fetchLeaderboardStats(): Promise<LeaderboardStats> {
-  return apiClient.fetch<LeaderboardStats>('/api/leaderboard/stats');
+export async function fetchLeaderboardStats(
+  difficulty: import('./types').Difficulty,
+): Promise<LeaderboardStats> {
+  const params = new URLSearchParams({ difficulty });
+  return apiClient.fetch<LeaderboardStats>(`/api/leaderboard/stats?${params.toString()}`);
 }

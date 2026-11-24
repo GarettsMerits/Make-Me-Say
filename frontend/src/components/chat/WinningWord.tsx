@@ -13,8 +13,8 @@ import { motion } from 'framer-motion';
 
 interface WinningWordProps {
   word: string;
-  /** 1-based leaderboard rank the player earned. Drives the medal colour. */
-  rank: number;
+  /** 1-based leaderboard rank the player earned. A missing rank stays off the medal colours. */
+  rank: number | null;
   /** Whether dark mode is currently active. Affects base and pulse colours for non-medal ranks. */
   isDarkMode: boolean;
 }
@@ -22,7 +22,7 @@ interface WinningWordProps {
 // ─── Colour helpers ───────────────────────────────────────────────────────────
 
 /** Base text colour for the word, as a CSS colour string. */
-function rankColourHex(rank: number, isDarkMode: boolean): string {
+function rankColourHex(rank: number | null, isDarkMode: boolean): string {
   if (rank === 1) return '#facc15'; // yellow-400
   if (rank === 2) return '#cbd5e1'; // slate-300
   if (rank === 3) return '#d97706'; // amber-600
@@ -31,9 +31,9 @@ function rankColourHex(rank: number, isDarkMode: boolean): string {
 }
 
 /** The colour the word pulses TO — should contrast with the base. */
-function rankPulseColour(rank: number, isDarkMode: boolean): string {
+function rankPulseColour(rank: number | null, isDarkMode: boolean): string {
   // Medal ranks always pulse to white (they're on a dark bubble in both modes)
-  if (rank <= 3) return '#ffffff';
+  if (rank !== null && rank <= 3) return '#ffffff';
   // Non-medal: pulse to a contrasting accent rather than white/black
   return isDarkMode ? '#ffffff' : '#2563eb'; // white in dark, blue-600 in light
 }
@@ -55,7 +55,7 @@ const WAVE_REPEAT_DELAY = 0.6;
 // ─── Pulse helpers ────────────────────────────────────────────────────────────
 
 /** How many white pulses fire per cycle, keyed by rank. */
-function pulseCount(rank: number): number {
+function pulseCount(rank: number | null): number {
   if (rank === 1) return 3;
   if (rank === 2) return 2;
   return 1;

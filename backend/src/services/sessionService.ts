@@ -9,22 +9,25 @@
  * Nothing in here knows about HTTP, SSE, or LLM streaming.
  */
 import pool from '../db/connection.js';
+import { asDifficulty } from '../domain/difficulty.js';
+import { InMemoryLeaderboard } from '../domain/InMemoryLeaderboard.js';
+import { parseStoredMessages, type ScoredMessage } from '../domain/PlayerScore.js';
+import { roundForTranscript } from '../domain/Round.js';
+import { HttpError } from '../http/HttpError.js';
+import type { Difficulty } from '../types.js';
+import { countTokens } from './llm.helpers.js';
 import type { ChatMessage } from '../services/llm.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface StoredMessage {
-  sender: 'user' | 'llm';
-  text: string;
-  tokenCount?: number;
-}
-
 export interface SessionRow {
   id: string;
   target_word: string;
+  difficulty?: Difficulty | string | null;
   current_tokens: number;
-  messages: StoredMessage[] | string;
+  messages: ScoredMessage[] | string;
   completed: boolean;
+  declined?: boolean;
   created_at: string;
   last_activity: string;
 }
@@ -34,20 +37,25 @@ export interface ResolvedSession {
   targetWord: string;
   /** null on the very first exchange (no DB row yet) */
   sessionData: SessionRow | null;
-  storedMessages: StoredMessage[];
+  storedMessages: ScoredMessage[];
   llmMessages: ChatMessage[];
+  difficulty: Difficulty;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** mysql2 may auto-parse JSON columns; guard against double-parsing. */
-function parseMessages(raw: StoredMessage[] | string): StoredMessage[] {
-  if (Array.isArray(raw)) return raw;
-  try { return JSON.parse(raw || '[]'); } catch { return []; }
+/** Prefer the word list over the session column. Older rows defaulted to normal. */
+async function difficultyForWord(word: string, stored: unknown): Promise<Difficulty> {
+  const [rows] = await pool.execute(
+    'SELECT difficulty FROM target_words WHERE word = ? LIMIT 1',
+    [word],
+  );
+  const fromList = asDifficulty((rows as { difficulty?: unknown }[])[0]?.difficulty);
+  return fromList ?? asDifficulty(stored) ?? 'normal';
 }
 
 /** Convert stored messages + the current user turn into the ChatMessage format. */
-function buildLlmMessages(stored: StoredMessage[], userMessage: string): ChatMessage[] {
+function buildLlmMessages(stored: ScoredMessage[], userMessage: string): ChatMessage[] {
   return [
     ...stored.map((m): ChatMessage => ({
       role: m.sender === 'user' ? 'user' : 'assistant',
@@ -62,8 +70,7 @@ function buildLlmMessages(stored: StoredMessage[], userMessage: string): ChatMes
 /**
  * Resolve a target word and load/initialise session state from the DB.
  *
- * Throws with a `statusCode` property so the route can forward the right
- * HTTP status without knowing DB internals.
+ * Throws HttpError so the route can forward a client-safe status.
  */
 export async function resolveSession(
   providedSessionId: string | undefined,
@@ -75,27 +82,27 @@ export async function resolveSession(
 
   if (isNewSession) {
     if (targetWordId == null) {
-      const err = Object.assign(new Error('targetWordId is required when starting a new session'), { statusCode: 400 });
-      throw err;
+      throw new HttpError(400, 'targetWordId is required when starting a new session');
     }
 
     const [wordRows] = await pool.execute(
-      'SELECT word FROM target_words WHERE id = ? AND is_active = TRUE',
+      'SELECT word, difficulty FROM target_words WHERE id = ? AND is_active = TRUE',
       [targetWordId],
     );
-    const wordResults = wordRows as { word: string }[];
+    const wordResults = wordRows as { word: string; difficulty: unknown }[];
     if (wordResults.length === 0) {
-      throw Object.assign(new Error('Invalid targetWordId'), { statusCode: 400 });
+      throw new HttpError(400, 'Invalid targetWordId');
     }
 
     const targetWord = wordResults[0]!.word;
-    const storedMessages: StoredMessage[] = [];
+    const storedMessages: ScoredMessage[] = [];
     return {
       sessionId,
       targetWord,
       sessionData: null,
       storedMessages,
       llmMessages: buildLlmMessages(storedMessages, userMessage),
+      difficulty: asDifficulty(wordResults[0]!.difficulty) ?? 'normal',
     };
   }
 
@@ -107,22 +114,39 @@ export async function resolveSession(
   const sessions = sessionRows as SessionRow[];
 
   if (sessions.length === 0) {
-    throw Object.assign(new Error('Session not found. Start a new game.'), { statusCode: 404 });
+    throw new HttpError(404, 'Session not found. Start a new game.');
   }
 
   const sessionData: SessionRow = sessions[0]!;
 
-  if (sessionData.completed) {
-    throw Object.assign(new Error('This game session is already complete.'), { statusCode: 409 });
+  if (sessionData.declined) {
+    throw new HttpError(409, 'This round was declined.');
   }
 
-  const storedMessages = parseMessages(sessionData.messages);
+  if (sessionData.completed) {
+    throw new HttpError(409, 'This game session is already complete.');
+  }
+
+  const storedMessages = parseStoredMessages(sessionData.messages);
+  const difficulty = await difficultyForWord(sessionData.target_word, sessionData.difficulty);
+  const round = roundForTranscript({
+    targetWord: sessionData.target_word,
+    difficulty,
+    messages: storedMessages,
+    leaderboard: new InMemoryLeaderboard(),
+    countTokens,
+  });
+  if (round.scoreLocked()) {
+    throw new HttpError(409, 'This round is already won.');
+  }
+
   return {
     sessionId: providedSessionId!,
     targetWord: sessionData.target_word,
     sessionData,
     storedMessages,
     llmMessages: buildLlmMessages(storedMessages, userMessage),
+    difficulty,
   };
 }
 
@@ -134,100 +158,106 @@ export async function persistExchange(
   sessionId: string,
   targetWord: string,
   sessionData: SessionRow | null,
-  storedMessages: StoredMessage[],
+  storedMessages: ScoredMessage[],
   userMessage: string,
   userTokens: number,
   llmResponse: string,
   llmTokens: number,
   completed: boolean,
+  difficulty: Difficulty,
 ): Promise<number> {
   const exchangeTokens = userTokens + llmTokens;
-  const updatedMessages: StoredMessage[] = [
+  const updatedMessages: ScoredMessage[] = [
     ...storedMessages,
     { sender: 'user', text: userMessage,   tokenCount: userTokens },
     { sender: 'llm',  text: llmResponse,   tokenCount: llmTokens  },
   ];
 
-  let totalTokens: number;
+  const connection = await pool.getConnection();
   try {
+    await connection.beginTransaction();
+
+    let totalTokens: number;
     if (sessionData) {
       totalTokens = sessionData.current_tokens + exchangeTokens;
-      await pool.execute(
+      const [result] = await connection.execute(
         `UPDATE game_sessions
-            SET current_tokens = ?, messages = ?, completed = ?, last_activity = CURRENT_TIMESTAMP
-          WHERE id = ?`,
-        [totalTokens, JSON.stringify(updatedMessages), completed, sessionId],
+            SET current_tokens = ?, messages = ?, completed = ?, difficulty = ?, last_activity = CURRENT_TIMESTAMP
+          WHERE id = ? AND current_tokens = ?`,
+        [
+          totalTokens,
+          JSON.stringify(updatedMessages),
+          completed,
+          difficulty,
+          sessionId,
+          sessionData.current_tokens,
+        ],
       );
+      if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) {
+        throw new HttpError(409, 'This game changed before the reply could be saved. Reload and try again.');
+      }
     } else {
       totalTokens = exchangeTokens;
-      await pool.execute(
-        `INSERT INTO game_sessions (id, target_word, current_tokens, messages, completed)
-          VALUES (?, ?, ?, ?, ?)`,
-        [sessionId, targetWord, totalTokens, JSON.stringify(updatedMessages), completed],
+      await connection.execute(
+        `INSERT INTO game_sessions (id, target_word, difficulty, current_tokens, messages, completed)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        [sessionId, targetWord, difficulty, totalTokens, JSON.stringify(updatedMessages), completed],
       );
-      // First message in this game — mark it as a game played for the target word
-      pool.execute(
+      await connection.execute(
         'UPDATE target_words SET total_games_played = total_games_played + 1 WHERE word = ?',
         [targetWord],
-      ).catch((err) => console.warn('Could not update total_games_played:', err));
+      );
     }
+
+    await connection.commit();
+    return totalTokens;
   } catch (dbError) {
-    console.warn('Could not persist session to database:', dbError);
-    totalTokens = (sessionData?.current_tokens ?? 0) + exchangeTokens;
-  }
-
-  return totalTokens;
-}
-
-/**
- * Fetch the player's prospective rank and the total leaderboard size for a
- * given token count.  Returns safe defaults on failure so the loss prompt
- * always has something sensible to say.
- */
-export async function fetchRankContext(
-  tokenCount: number,
-): Promise<{ rank: number; total: number }> {
-  try {
-    const [rows] = await pool.execute(
-      `SELECT
-         (SELECT COUNT(*) FROM leaderboard WHERE token_count <= ?) AS better_or_equal,
-         (SELECT COUNT(*) FROM leaderboard)                         AS total`,
-      [tokenCount],
-    );
-    const row = (rows as any[])[0];
-    return {
-      rank:  (row.better_or_equal ?? 0) + 1,
-      total: row.total ?? 1,
-    };
-  } catch {
-    return { rank: 1, total: 1 };
+    await connection.rollback();
+    if (dbError instanceof HttpError) throw dbError;
+    console.error('Could not persist session to database:', dbError);
+    throw new HttpError(503, 'This turn could not be saved. Send it again.');
+  } finally {
+    connection.release();
   }
 }
 
 /**
- * Return a session row as a clean JSON-serialisable object.
+ * Close an in-progress session so a later turn cannot continue it.
+ * A finished or already-submitted session is left unchanged.
  */
-export async function getSessionById(sessionId: string): Promise<{
-  sessionId: string;
-  targetWord: string;
-  messages: StoredMessage[];
-  totalTokens: number;
-  completed: boolean;
-  createdAt: string;
-  lastActivity: string;
-} | null> {
-  const [rows] = await pool.execute('SELECT * FROM game_sessions WHERE id = ?', [sessionId]);
-  const sessions = rows as SessionRow[];
-  if (sessions.length === 0) return null;
-
-  const s = sessions[0]!;
-  return {
-    sessionId:    s.id,
-    targetWord:   s.target_word,
-    messages:     parseMessages(s.messages),
-    totalTokens:  s.current_tokens,
-    completed:    s.completed,
-    createdAt:    s.created_at,
-    lastActivity: s.last_activity,
-  };
+export async function abandonSession(sessionId: string): Promise<void> {
+  await pool.execute(
+    `UPDATE game_sessions
+        SET completed = TRUE, last_activity = CURRENT_TIMESTAMP
+      WHERE id = ? AND completed = FALSE AND score_submitted = FALSE`,
+    [sessionId],
+  );
 }
+
+/**
+ * Record a decline. The conversation stays, and the score cannot be committed later.
+ * Reset still ends the round; this does not.
+ */
+export async function declineSession(sessionId: string): Promise<void> {
+  const [rows] = await pool.execute(
+    'SELECT declined, score_submitted, completed FROM game_sessions WHERE id = ?',
+    [sessionId],
+  );
+  const session = (rows as Array<{
+    declined?: number | boolean;
+    score_submitted?: number | boolean;
+    completed?: number | boolean;
+  }>)[0];
+  if (!session) throw new HttpError(404, 'Session not found');
+  if (session.score_submitted) throw new HttpError(409, 'Score already submitted for this session');
+  if (session.completed) throw new HttpError(400, 'This round has ended');
+  if (session.declined) return;
+
+  await pool.execute(
+    `UPDATE game_sessions
+        SET declined = TRUE
+      WHERE id = ? AND score_submitted = FALSE AND completed = FALSE`,
+    [sessionId],
+  );
+}
+

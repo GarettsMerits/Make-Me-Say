@@ -19,6 +19,7 @@ export interface ChatScrollAreaProps {
   messages: ChatMessage[];
   isLoading: boolean;
   isWon: boolean;
+  winningMessageId: string | null;
   targetWord: string;
   wonRank: number | null;
   onReroll: () => void;
@@ -29,6 +30,7 @@ const ChatScrollArea: React.FC<ChatScrollAreaProps> = ({
   messages,
   isLoading,
   isWon,
+  winningMessageId,
   targetWord,
   wonRank,
   onReroll,
@@ -43,15 +45,17 @@ const ChatScrollArea: React.FC<ChatScrollAreaProps> = ({
           messages={messages}
           isLoading={isLoading}
           winningWord={isWon ? targetWord : undefined}
-          wonRank={wonRank ?? undefined}
+          winningMessageId={isWon ? winningMessageId : null}
+          wonRank={wonRank}
           onReroll={onReroll}
           isRerolling={isRerolling}
         />
       </div>
     </div>
 
-    {/* Gradient that fades messages under the instruction prompt */}
+    {/* Fades where the transcript meets the instruction line and the composer */}
     <div className="pointer-events-none absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-layer-1-light dark:from-layer-1-dark to-transparent" />
+    <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-layer-1-light dark:from-layer-1-dark to-transparent" />
 
   </div>
 );
