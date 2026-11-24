@@ -9,10 +9,6 @@ import { VALID_DIFFICULTIES, type Difficulty } from '../types.js';
 
 const router = express.Router();
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /**
  * GET /api/target-word
  * Returns a random active target word from the database.
@@ -72,10 +68,7 @@ router.get('/', async (req: Request, res: Response) => {
     });
   } catch (error: unknown) {
     console.error('Error fetching target word:', error);
-    res.status(500).json({
-      error: 'Failed to fetch target word',
-      message: getErrorMessage(error),
-    });
+    res.status(500).json({ error: 'Failed to fetch target word' });
   }
 });
 
@@ -94,28 +87,29 @@ router.post('/reroll', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'targetWordId must be a positive integer' });
     }
 
-    await pool.execute(
-      'UPDATE target_words SET reroll_count = reroll_count + 1 WHERE id = ?',
+    const [result] = await pool.execute(
+      'UPDATE target_words SET reroll_count = reroll_count + 1 WHERE id = ? AND is_active = TRUE',
       [parsedId],
     );
+    if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) {
+      return res.status(404).json({ error: 'Target word not found' });
+    }
 
     res.json({ success: true });
   } catch (error: unknown) {
     console.error('Error recording reroll:', error);
-    res.status(500).json({
-      error: 'Failed to record reroll',
-      message: getErrorMessage(error),
-    });
+    res.status(500).json({ error: 'Failed to record reroll' });
   }
 });
 
 /**
  * GET /api/target-word/list
  * Returns all available target words.
- * Restricted to development environment only.
+ * Off unless ENABLE_WORD_LIST=true. NODE_ENV=development is not enough,
+ * because that is the local default and would publish every answer.
  */
 router.get('/list', async (req: Request, res: Response) => {
-  if (process.env.NODE_ENV !== 'development') {
+  if (process.env.ENABLE_WORD_LIST !== 'true') {
     return res.status(403).json({ error: 'Forbidden' });
   }
   try {
@@ -125,10 +119,7 @@ router.get('/list', async (req: Request, res: Response) => {
     res.json({ words: rows });
   } catch (error: unknown) {
     console.error('Error listing target words:', error);
-    res.status(500).json({
-      error: 'Failed to list target words',
-      message: getErrorMessage(error),
-    });
+    res.status(500).json({ error: 'Failed to list target words' });
   }
 });
 

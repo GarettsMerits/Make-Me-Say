@@ -1,35 +1,41 @@
 /**
- * SessionStats component
- * Displays session token total and potential leaderboard position.
+ * The figure for this round. While a message can still be sent it is the
+ * token preview. From the win onward it is the locked score.
  */
 import React from 'react';
 import { formatTokenCount } from '../../../utils/tokenCounter';
+import { rankLabel } from '../../../utils/rankHelpers';
 
 interface SessionStatsProps {
-  sessionTokens: number;
-  potentialPosition: number;
+  figure: number;
+  locked: boolean;
+  potentialPosition?: number | null;
+  /** The entry's current rank after a commit. Hidden before then. */
+  currentRank?: number | null;
 }
 
-/**
- * SessionStats - displays game progress metrics
- * 
- * COMPONENT RESPONSIBILITY:
- * - Show total tokens used in session
- * - Show potential leaderboard position
- * - Responsive text styling for dark mode
- */
-const SessionStats: React.FC<SessionStatsProps> = ({ 
-  sessionTokens, 
-  potentialPosition 
+const SessionStats: React.FC<SessionStatsProps> = ({
+  figure,
+  locked,
+  potentialPosition = null,
+  currentRank = null,
 }) => {
   return (
-    <div className="flex justify-between items-center mb-2 text-sm app-muted">
-      <div>
-        Session total: <span className="font-medium app-muted-bright">{formatTokenCount(sessionTokens)}</span>
-      </div>
-      <div>
-        Potential position: <span className="font-medium app-muted-bright">#{potentialPosition}</span>
-      </div>
+    <div className="mb-2 text-sm app-muted">
+      {locked ? 'Score' : 'Token preview'}:{' '}
+      <span className="font-medium app-muted-bright">{formatTokenCount(figure)}</span>
+      {potentialPosition !== null && (
+        <span>
+          {' '}· Potential position:{' '}
+          <span className="font-medium app-muted-bright">{rankLabel(potentialPosition)}</span>
+        </span>
+      )}
+      {currentRank !== null && (
+        <span>
+          {' '}· Rank:{' '}
+          <span className="font-medium app-muted-bright">{rankLabel(currentRank)}</span>
+        </span>
+      )}
     </div>
   );
 };

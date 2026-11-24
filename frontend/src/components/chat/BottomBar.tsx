@@ -9,8 +9,8 @@
  *  Active game (isWon = false):
  *    Normal input  — live textarea + action buttons
  *
- *  Game over (isWon && scoreSubmitted):
- *    Disabled input — same layout, all controls locked
+ *  After a commit (isWon && scoreSubmitted):
+ *    The round can be read and reset. Sending and scoring are closed.
  *
  *  Won, score not yet submitted (isWon && !scoreSubmitted):
  *    'prompt'   → PromptPanel  — congrats + "Submit" / "No thanks"
@@ -41,18 +41,20 @@ export interface BottomBarProps {
   onSubmit: (text: string) => void;
   /** Clears the game session and triggers a fresh target-word fetch. */
   onReset:  () => void;
+  /** Restores the composer after the server rejects a turn. */
+  rejectedDraft?: { id: number; text: string } | null;
 }
 
-const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
+const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset, rejectedDraft }) => {
   const {
-    inputText, setInputText, inputTokens, potentialPosition, submitMessage,
-    sessionTokens, isLoading, isWon, wonRank, scoreSubmitted, hasMessages,
+    inputText, setInputText, inputTokens, submitMessage,
+    shownFigure, potentialPosition, scoreLocked, isLoading, isWon, wonRank, rankUnavailable, scoreSubmitted,
     targetWord,
     victoryState, setVictoryState, handleScoreSubmit,
     pendingDialog,
     requestDeclineConfirm, requestResetConfirm,
     confirmPending, cancelPending,
-  } = useBottomBar({ onSubmit, onReset });
+  } = useBottomBar({ onSubmit, onReset, rejectedDraft });
 
   const showVictory = isWon && !scoreSubmitted;
   const isGameOver  = isWon && scoreSubmitted;
@@ -61,7 +63,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
     <>
       {/* ── Main sticky bar ─────────────────────────────────────────────────── */}
       <div className="bar-bottom shrink-0">
-        <div className={getChatContainerClasses('py-4')} style={{ height: BAR_BOTTOM.heightPx }}>
+        <div className={getChatContainerClasses('py-4')} style={{ minHeight: BAR_BOTTOM.heightPx }}>
 
           {showVictory ? (
             /* ── Victory flow ─────────────────────────────────────────────── */
@@ -69,8 +71,9 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
               {victoryState === 'prompt' ? (
                 <PromptPanel
                   key="prompt"
-                  sessionTokens={sessionTokens}
-                  wonRank={wonRank ?? 999}
+                  sessionTokens={shownFigure}
+                  wonRank={wonRank}
+                  rankUnavailable={rankUnavailable}
                   onSubmit={() => setVictoryState('enter')}
                   onDecline={requestDeclineConfirm}
                 />
@@ -78,14 +81,16 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
                 <NameEntryBar
                   key="enter"
                   targetWord={targetWord}
-                  sessionTokens={sessionTokens}
-                  wonRank={wonRank ?? 999}
+                  sessionTokens={shownFigure}
+                  wonRank={wonRank}
+                  rankUnavailable={rankUnavailable}
                   onConfirm={handleScoreSubmit}
                   onCancel={() => setVictoryState('prompt')}
                 />
               ) : (
                 <DeclinedPanel
                   key="declined"
+                  score={shownFigure}
                   onReset={requestResetConfirm}
                 />
               )}
@@ -95,8 +100,10 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
             /* ── Normal / game-over input ─────────────────────────────────── */
             <>
               <SessionStats
-                sessionTokens={sessionTokens}
+                figure={shownFigure}
+                locked={scoreLocked}
                 potentialPosition={potentialPosition}
+                currentRank={scoreSubmitted ? wonRank : null}
               />
               <form
                 onSubmit={(e) => { e.preventDefault(); submitMessage(); }}
@@ -111,7 +118,6 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset }) => {
                 />
                 <InputActionButtons
                   isLoading={isLoading}
-                  hasMessages={hasMessages}
                   hasInput={inputText.trim().length > 0}
                   isGameOver={isGameOver}
                   onReset={onReset}

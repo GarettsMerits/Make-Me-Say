@@ -17,6 +17,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ChatMessage as ChatMessageType } from '../../store';
 import { formatTokenCount } from '../../utils/tokenCounter';
+import { TargetWordMatcher } from '../../utils/TargetWordMatcher';
 import { getMessageGridClasses, MESSAGE_GRID } from '../../styles/chatLayout';
 import { useUIStore } from '../../store';
 import WinningWord from './WinningWord';
@@ -30,7 +31,7 @@ interface ChatMessageProps {
    */
   winningWord?: string;
   /** The player's achieved leaderboard rank — forwarded to WinningWord for medal colouring. */
-  wonRank?: number;
+  wonRank?: number | null;
 }
 
 /**
@@ -40,7 +41,7 @@ interface ChatMessageProps {
  * - User messages: Blue bubble, aligned right, no width limit
  * - LLM messages: Gray bubble, aligned left, max 75% width
  */
-const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ message, winningWord, wonRank = 1 }) => {
+const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ message, winningWord, wonRank = null }) => {
   const isUser = message.sender === 'user';
   const { isDarkMode } = useUIStore();
 
@@ -54,16 +55,14 @@ const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ message, winningWo
       return <>{message.text}</>;
     }
 
-    // Escape the target word for use in a regex (mirrors backend escapeRegExp)
-    const escaped = winningWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const parts = message.text.split(new RegExp(`(${escaped})`, 'i'));
+    const parts = new TargetWordMatcher(winningWord).split(message.text);
 
     return (
       <>
         {parts.map((part, i) =>
-          part.toLowerCase() === winningWord.toLowerCase()
-            ? <WinningWord key={i} word={part} rank={wonRank} isDarkMode={isDarkMode} />
-            : <React.Fragment key={i}>{part}</React.Fragment>
+          part.isMatch
+            ? <WinningWord key={i} word={part.text} rank={wonRank} isDarkMode={isDarkMode} />
+            : <React.Fragment key={i}>{part.text}</React.Fragment>
         )}
       </>
     );

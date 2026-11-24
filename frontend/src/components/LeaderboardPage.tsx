@@ -2,7 +2,7 @@
  * Leaderboard page  Edisplays top scores and aggregate statistics fetched
  * from the backend API, with per-difficulty filtering.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   fetchLeaderboard,
@@ -17,13 +17,15 @@ import LeaderboardMessage from './leaderboard/LeaderboardMessage';
 // ─── Difficulty tab config ────────────────────────────────────────────────────
 
 interface DifficultyTab {
-  value: Difficulty | 'all';
+  value: Difficulty;
   label: string;
   colour: string;
 }
 
+const PAGE_SIZE = 100;
+const MAX_HIGHLIGHT_PAGES = 10;
+
 const TABS: DifficultyTab[] = [
-  { value: 'all',       label: 'All',       colour: 'text-gray-500 dark:text-gray-400' },
   { value: 'easy',      label: 'Easy',      colour: 'text-green-500 dark:text-green-400' },
   { value: 'normal',    label: 'Normal',    colour: 'text-blue-500 dark:text-blue-400' },
   { value: 'hard',      label: 'Hard',      colour: 'text-orange-500 dark:text-orange-400' },
@@ -74,41 +76,52 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const LeaderboardPage: React.FC = () => {
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | 'all'>('all');
+  const storedDifficulty = useUIStore((state) => state.leaderboardTab);
+  const selectedDifficulty: Difficulty =
+    storedDifficulty === 'easy' || storedDifficulty === 'hard' || storedDifficulty === 'nightmare'
+      ? storedDifficulty
+      : 'normal';
+  const setSelectedDifficulty = useUIStore((state) => state.setLeaderboardTab);
   const [entries, setEntries]   = useState<LeaderboardEntry[]>([]);
   const [stats,   setStats]     = useState<LeaderboardStats | null>(null);
+  const [hasMore, setHasMore]   = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error,   setError]     = useState<string | null>(null);
 
   const { pendingHighlightId, setPendingHighlightId } = useUIStore();
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const loadGeneration = useRef(0);
+  const highlightPages = useRef(0);
 
   useEffect(() => {
+    const generation = ++loadGeneration.current;
+    highlightPages.current = 0;
     let cancelled = false;
     setIsLoading(true);
     setError(null);
+    setEntries([]);
+    setHasMore(false);
 
     async function loadData() {
       try {
-        const difficulty = selectedDifficulty === 'all' ? undefined : selectedDifficulty;
         const [leaderboardResult, statsResult] = await Promise.all([
-          fetchLeaderboard(20, difficulty),
-          fetchLeaderboardStats(),
+          fetchLeaderboard(PAGE_SIZE, selectedDifficulty, 0),
+          fetchLeaderboardStats(selectedDifficulty),
         ]);
-        if (!cancelled) {
-          setEntries(leaderboardResult.leaderboard);
-          setStats(statsResult);
-        }
+        if (cancelled || generation !== loadGeneration.current) return;
+        setEntries(leaderboardResult.leaderboard);
+        setHasMore(leaderboardResult.hasMore);
+        setStats(statsResult);
       } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : 'Could not load leaderboard. Is the backend running?'
-          );
-        }
+        if (cancelled || generation !== loadGeneration.current) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Could not load leaderboard. Is the backend running?'
+        );
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && generation === loadGeneration.current) setIsLoading(false);
       }
     }
 
@@ -116,16 +129,42 @@ const LeaderboardPage: React.FC = () => {
     return () => { cancelled = true; };
   }, [selectedDifficulty]);
 
+  const loadMore = useCallback(async () => {
+    const generation = loadGeneration.current;
+    setIsLoadingMore(true);
+    setError(null);
+    try {
+      const page = await fetchLeaderboard(PAGE_SIZE, selectedDifficulty, entries.length);
+      if (generation !== loadGeneration.current) return;
+      setEntries((current) => {
+        const seen = new Set(current.map((entry) => entry.id));
+        return [...current, ...page.leaderboard.filter((entry) => !seen.has(entry.id))];
+      });
+      setHasMore(page.hasMore);
+    } catch (err) {
+      if (generation !== loadGeneration.current) return;
+      setError(err instanceof Error ? err.message : 'Could not load more scores.');
+    } finally {
+      if (generation === loadGeneration.current) setIsLoadingMore(false);
+    }
+  }, [selectedDifficulty, entries.length]);
+
+  useEffect(() => {
+    if (!pendingHighlightId || isLoading || isLoadingMore || error) return;
+    if (entries.some((entry) => entry.id === pendingHighlightId)) return;
+    if (!hasMore || highlightPages.current >= MAX_HIGHLIGHT_PAGES) return;
+    highlightPages.current += 1;
+    void loadMore();
+  }, [pendingHighlightId, isLoading, isLoadingMore, hasMore, entries, loadMore, error]);
+
   useEffect(() => {
     if (!pendingHighlightId || isLoading) return;
     const el = rowRefs.current.get(pendingHighlightId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const timer = setTimeout(() => setPendingHighlightId(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingHighlightId, isLoading, entries]);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = setTimeout(() => setPendingHighlightId(null), 3000);
+    return () => clearTimeout(timer);
+  }, [pendingHighlightId, isLoading, entries, setPendingHighlightId]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -182,12 +221,12 @@ const LeaderboardPage: React.FC = () => {
           <h3 className="app-label text-lg mb-4">Top Scores</h3>
 
           {isLoading && <LoadingSkeleton />}
-          {error && <EmptyState message={error} />}
+          {error && entries.length === 0 && <EmptyState message={error} />}
           {!isLoading && !error && entries.length === 0 && (
             <EmptyState message="No scores yet for this difficulty — be the first to win!" />
           )}
 
-          {!isLoading && !error && entries.length > 0 && (
+          {!isLoading && entries.length > 0 && (
             <div className="space-y-2">
               {/* Table header */}
               <div className="grid grid-cols-[2rem_1fr_auto_auto] gap-3 px-3 text-xs font-semibold uppercase tracking-wide app-muted">
@@ -198,7 +237,7 @@ const LeaderboardPage: React.FC = () => {
               </div>
 
               {entries.map((entry, index) => {
-                const rank = index + 1;
+                const rank = entry.rank;
                 const isHighlighted = entry.id === pendingHighlightId;
                 return (
                   <motion.div
@@ -209,7 +248,7 @@ const LeaderboardPage: React.FC = () => {
                     }}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.04 }}
+                    transition={{ delay: Math.min(index, 12) * 0.03 }}
                     className={[
                       'grid grid-cols-[2rem_1fr_auto_auto] gap-3 items-start px-3 py-2 rounded-lg transition-colors duration-500',
                       isHighlighted
@@ -229,9 +268,6 @@ const LeaderboardPage: React.FC = () => {
                       <p className="text-gray-800 dark:text-gray-100 truncate">{entry.player_name}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         <span className="font-medium">"{entry.target_word}"</span>
-                        {selectedDifficulty === 'all' && (
-                          <span className="ml-1.5 opacity-60 capitalize">{entry.difficulty}</span>
-                        )}
                       </p>
                       {entry.llm_victory_message && (
                         <LeaderboardMessage
@@ -258,6 +294,19 @@ const LeaderboardPage: React.FC = () => {
                   </motion.div>
                 );
               })}
+              {error && (
+                <p className="mt-3 text-center text-sm text-red-500">{error}</p>
+              )}
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={() => { void loadMore(); }}
+                  disabled={isLoadingMore}
+                  className="btn-secondary mt-4 w-full"
+                >
+                  {isLoadingMore ? 'Loading…' : 'Show more'}
+                </button>
+              )}
             </div>
           )}
         </div>

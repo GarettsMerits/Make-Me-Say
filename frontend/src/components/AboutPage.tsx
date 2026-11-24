@@ -44,10 +44,9 @@ const AboutPage: React.FC = () => {
                   <h4 className="app-label">Backend</h4>
                   
                   <ul className="text-sm space-y-1 text-gray-600 dark:text-gray-300">
-                    <li>• ASP.NET Core 8</li>
-                    <li>• Entity Framework Core</li>
-                    <li>• MySQL Database</li>
-                    <li>• DeepSeek API Integration</li>
+                    <li>• Node.js, Express, and TypeScript</li>
+                    <li>• MySQL</li>
+                    <li>• Model calls stay on the server</li>
                   </ul>
 
                 </div>
@@ -68,7 +67,7 @@ const AboutPage: React.FC = () => {
                 <ul className="space-y-1">
                   <li>• 🌙 Dark/Light mode</li>
                   <li>• 📱 Mobile responsive</li>
-                  <li>• 🔒 Secure authentication</li>
+                  <li>• 🔒 Passphrase gate</li>
                   <li>• ⚡ Real-time chat</li>
                 </ul>
 

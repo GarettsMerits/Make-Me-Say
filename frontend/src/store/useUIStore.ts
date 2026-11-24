@@ -7,6 +7,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { PageType } from './types';
+import type { Difficulty } from '../utils/api/types';
+
+export type LeaderboardTab = Difficulty;
 
 /**
  * UI Store State Interface
@@ -27,15 +30,19 @@ interface UIState {
   pendingHighlightId: number | null;
   /**
    * True once the player has confirmed a difficulty at least once.
-   * Used to detect first-time visitors and send them to How To Play.
+   * The first visit already opens on How To Play. This flag only changes
+   * the difficulty dialog from a welcome into a reset.
    */
   hasSeenGame: boolean;
+  /** Leaderboard difficulty tab. Kept here so leaving the page does not reset it. */
+  leaderboardTab: LeaderboardTab;
   
   // ===== ACTIONS =====
   toggleDarkMode: () => void;
   setCurrentPage: (page: PageType) => void;
   setPendingHighlightId: (id: number | null) => void;
   setHasSeenGame: () => void;
+  setLeaderboardTab: (tab: LeaderboardTab) => void;
 }
 
 /**
@@ -53,6 +60,7 @@ export const useUIStore = create<UIState>()(
       currentPage: 'howtoplay',
       pendingHighlightId: null,
       hasSeenGame: false,
+      leaderboardTab: 'normal',
       
       // ===== ACTION IMPLEMENTATIONS =====
       
@@ -65,6 +73,8 @@ export const useUIStore = create<UIState>()(
       setPendingHighlightId: (id) => set({ pendingHighlightId: id }),
 
       setHasSeenGame: () => set({ hasSeenGame: true }),
+
+      setLeaderboardTab: (leaderboardTab) => set({ leaderboardTab }),
     }),
     {
       name: 'ui-preferences',  // localStorage key

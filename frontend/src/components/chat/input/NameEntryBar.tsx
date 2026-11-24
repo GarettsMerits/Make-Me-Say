@@ -11,15 +11,17 @@
  */
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useGameStore } from '../../../store';
 import { formatTokenCount } from '../../../utils/tokenCounter';
-import { rankLabel, rankColourClass } from '../../../utils/rankHelpers';
+import { rankLabel, rankColourClass, leaderboardPlaceSentence } from '../../../utils/rankHelpers';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface NameEntryBarProps {
   targetWord: string;
   sessionTokens: number;
-  wonRank: number;
+  wonRank: number | null;
+  rankUnavailable: boolean;
   /** Called with the validated, trimmed name when the player confirms. */
   onConfirm: (name: string) => Promise<void>;
   /** Called when the player presses X to go back to the victory prompt. */
@@ -32,10 +34,12 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
   targetWord,
   sessionTokens,
   wonRank,
+  rankUnavailable,
   onConfirm,
   onCancel,
 }) => {
-  const [name, setName] = useState('');
+  const name = useGameStore((state) => state.scoreName);
+  const setName = useGameStore((state) => state.setScoreName);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,9 +71,15 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
         <span className="font-semibold app-muted-bright">{targetWord}</span>
         {' '}in{' '}
         <span className="font-semibold app-muted-bright">{formatTokenCount(sessionTokens)}</span>
-        {''}, granting you{' '}
-        <span className={`font-semibold ${rankColourClass(wonRank)}`}>{rankLabel(wonRank)}</span>
-        {' '}on the leaderboard!
+        {wonRank === null ? (
+          `. ${leaderboardPlaceSentence(null, rankUnavailable)}`
+        ) : (
+          <>
+            . Your provisional place is{' '}
+            <span className={`font-semibold ${rankColourClass(wonRank)}`}>{rankLabel(wonRank)}</span>
+            .
+          </>
+        )}
       </div>
 
       {/* Name field + action buttons — compact row */}
@@ -108,8 +118,7 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
           onClick={handleConfirm}
           disabled={isSubmitting || !name.trim()}
           whileTap={!isSubmitting && !!name.trim() ? { scale: 0.97 } : {}}
-          className="btn btn-primary flex items-center justify-center text-lg font-medium"
-          style={{ aspectRatio: '1', alignSelf: 'stretch' }}
+          className="btn btn-primary flex size-12 shrink-0 items-center justify-center self-center text-lg font-medium"
           title="Submit score"
         >
           {isSubmitting ? '…' : '✓'}
@@ -120,8 +129,7 @@ const NameEntryBar: React.FC<NameEntryBarProps> = ({
           onClick={onCancel}
           disabled={isSubmitting}
           whileTap={!isSubmitting ? { scale: 0.97 } : {}}
-          className="btn btn-secondary flex items-center justify-center text-lg"
-          style={{ aspectRatio: '1', alignSelf: 'stretch' }}
+          className="btn btn-secondary flex size-12 shrink-0 items-center justify-center self-center text-lg"
           title="Cancel"
         >
           ✕

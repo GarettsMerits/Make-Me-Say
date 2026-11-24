@@ -24,6 +24,8 @@ import type { ChatRequest, ChatDonePayload, StreamCallbacks } from './types';
  *  - A fresh parser per request avoids any cross-request state leakage.
  *  - The dispatch logic is unit-testable independently of the fetch layer.
  */
+const SSE_BUFFER_MAX = 1_048_576;
+
 class SseParser {
   private buffer = '';
   private readonly decoder = new TextDecoder();
@@ -34,6 +36,10 @@ class SseParser {
    */
   feed(chunk: Uint8Array, callbacks: StreamCallbacks): void {
     this.buffer += this.decoder.decode(chunk, { stream: true });
+    if (this.buffer.length > SSE_BUFFER_MAX) {
+      this.buffer = '';
+      throw new Error('The reply was too large to read');
+    }
 
     // SSE events are delimited by blank lines (\n\n)
     const events = this.buffer.split('\n\n');
@@ -84,6 +90,22 @@ class SseParser {
  * All outcomes (chunks, completion, errors) are delivered through `callbacks`
  * rather than return values so the caller can drive UI updates incrementally.
  */
+/** Tell the server a reset closed this session, so a later turn cannot continue it. */
+export async function abandonSession(sessionId: string): Promise<void> {
+  await apiClient.fetch<{ success: boolean }>('/api/chat/abandon', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  });
+}
+
+/** Record a decline. The server keeps the conversation and refuses a later commit. */
+export async function declineSession(sessionId: string): Promise<void> {
+  await apiClient.fetch<{ success: boolean }>('/api/chat/decline', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  });
+}
+
 export async function sendChatMessage(
   request: ChatRequest,
   callbacks: StreamCallbacks

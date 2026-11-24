@@ -1,187 +1,178 @@
-# ‘Don’t Make Me Say’
+# Overview
 
-Don’t Make Me Say is a web development portfolio project designed to showcase a strong and well-rounded web development skillset combined with in-demand AI and cybersecurity knowledge for use in my professional portfolio.
+*Last reviewed against the source: 26 September 2026.*
 
-Don’t Make Me Say is a game within a website that will use an orthodox user-to-LLM chat interface where the user is challenged with making the LLM say a specific A.K.A. ‘target’ word displayed above the chat interface. To add challenge, the LLM will be prompted against using the target word in its response. If the user does succeed in making the LLM use target word in its response, the user wins.
+Don't Make Me Say is a portfolio web game. The player sees one word and a normal chat box. The model on the other side of the chat has been instructed never to say that word. If it does, the player wins. A lower token count is a better score, and the player may put a name on the leaderboard.
 
-There will also be a leaderboard scoring the user’s performance based on the number of input tokens that were required to make the LLM say the target word. If a player wins, a congratulatory prompt will ask the player for their name, which will then be added alongside their score on the leaderboard page.
+The original brief asked for a minimalist, mobile-usable, light-and-dark interface, a passphrase so the site is not public, and horizontal transitions between Chat, How To Play, Leaderboard, and About. This document describes the product as it behaves now. Where an earlier spec described something that was not built, or was built differently, that is called out here. Defects are catalogued in [Issues](Issues.md).
 
-## Overall Structure
+---
 
-- Top Ribbon
-  - A omni-present ribbon at the top of the page. Contains clickable buttons to change light/dark modes, logout, and swap between Chat, How To Play, Leaderboard, and About interfaces. The current interface selected will be highlighted.
-    For example, If I was currently in the Leaderboard interface, the Top Ribbon might look like this [ Chat | How To Play | >Leaderboard< | About ]
-  - This module is anchored to the top of the viewport.
-- Chat Interface
-  - Center justified and limited to a comfortable reading width. Dynamically downsize width if viewport width shrinks below intended interface width to eliminate horizontal scrolling.
-  - User Instruction Prompt
-    - A small enlarged blurb saying “Don’t make me say [target word]”.
-    - Anchored to the underside of the Top Ribbon.
-  - Chat Messages Interface
-    - Dynamically sizes vertically to fill viewport space between Message Input Box and User Instruction Prompt
-    - ‘Bubbled’ chat messages with different colours for LLM and user.
-    - LLM responses left-justified, user messages right-justified with their right edge aligned to the send/reset control column for visual symmetry.
-    - Scrollable chat that fades at the top before it would overlap the user instruction blurb and fades at the bottom before it would overlap the message input box
-    - Token counter that dynamically counts the total user-input message tokens and potential best leaderboard position should the user win after submitting only one more token. Located beneath the message input box.
-  - Message Input Box
-    - A text input field for writing messages to the LLM.
-    - Reset/retry and submit buttons are vertically stacked on the right edge of the input area (reset above submit) to minimize horizontal travel and keep controls grouped.
-    - Token counter that dynamically counts the tokens contained within the text in the message input box. Located within the text input field at the bottom, left-justified, smaller, faded text.
-    - This module is anchored to the bottom of the viewport.
-- Win Sequence
-  - When the LLM's response contains the target word, the win sequence activates:
-  - **Animated target word in chat:** The matching word inside the winning LLM message bubble is rendered in bold. Each letter rises and falls in a continuous left-to-right wave animation (Framer Motion staggered `y` keyframes). A periodic shiny reflective streak sweeps across the word in sync with the wave. The word is coloured by rank: gold for 1st, silver for 2nd, bronze for 3rd, white otherwise.
-  - **User Instruction Prompt changes:** The "I dare you to make me say…" prompt transitions to "Dangit! I said '[target word]'" with an animated crossfade.
-  - **Victory Bar replaces the Message Input Box** at the bottom of the chat. It has three sequential states:
-    1. *Victory prompt* — Congratulates the player, shows total tokens used and the leaderboard rank they achieved. Two buttons: "Submit my score" and "No thanks". The bar expands vertically to accommodate the content.
-    2. *Username entry* — A single-line text input with score and rank visible. Player types their desired display name and confirms. Name is validated (non-empty, ≤ 32 characters) before submission.
-    3. *Declined / disabled* — If the player opts out, the bar reverts to the standard input layout but with the textarea and submit button permanently disabled. The reset button remains active; the player must hit Reset to start a new game.
-  - **Post-submission leaderboard navigation:** After a successful score submission the app automatically navigates to the Leaderboard page and smoothly scrolls the player's newly submitted row into the centre of the panel. That row is highlighted by one brightness layer (a ring + background tint that respects light/dark mode) for 3 seconds before clearing.
-  - **Session reload win rehydration:** `isWon` and `wonRank` are intentionally excluded from Zustand's persisted state (they are transient UI state, not game data). On every page load they reset to `false`/`null`. A mount-only `useEffect` in `useChatLogic` therefore scans the persisted `messages` array on startup: if any LLM message contains the target word as a whole word, `isWon` is set to `true` and `wonRank` is fetched from the leaderboard rank endpoint. This ensures that if a player wins and then reloads the page before resetting, they are correctly returned to the Victory Bar state rather than being shown the normal input bar.
+## What the player experiences
 
-## Server-Side Score Submission Integrity
+### Before the passphrase
 
-To prevent a player from submitting their score more than once for a single winning session (e.g. by reloading the page after already recording their score), a `score_submitted` boolean column (`NOT NULL DEFAULT FALSE`) is maintained on the `game_sessions` table.
+`PassphraseGate` is the only screen. It is a single password field and a submit button on a plain card. There is no title, rules, or explanation of the game. Dark mode still applies if a previous visit stored `isDarkMode` in `localStorage`, because the UI store is read before login.
 
-### Flow
+Submit calls `POST /api/auth/verify`. On success the server sets an HttpOnly cookie. The page stores only a boolean `authenticated` flag in `sessionStorage` so the gate can skip itself. A refresh calls `GET /api/auth/me` and returns to the gate if the cookie is gone. Logout calls `POST /api/auth/logout` and clears the flag. The passphrase is not kept in the page.
 
-1. When `POST /api/leaderboard` is called with a `sessionId`, the server queries `game_sessions` for that session's `score_submitted` flag.
-2. If `score_submitted = TRUE`, the server immediately returns **409 Conflict** with `{ error: 'Score already submitted for this session' }`. No leaderboard row is inserted.
-3. If `score_submitted = FALSE` (or no session found), the leaderboard row is inserted normally.
-4. After a successful insert, the server executes `UPDATE game_sessions SET score_submitted = TRUE WHERE id = ?` to mark the session as scored.
+A wrong passphrase shows "Invalid passphrase". Network failures show the thrown error text.
 
-If no `sessionId` is provided in the request body, the duplicate-check is skipped (legacy / anonymous submissions are allowed through without a guard).
+### After the passphrase
 
-## LLM System Prompts
+`MainApplication` renders a fixed top ribbon and one page. The ribbon is 64px tall (`h-16`), full width, above the page content (`z-50`).
 
-Each chat turn injects a system prompt into the DeepSeek request to control LLM behaviour. Prompts live in dedicated files under `backend/src/prompts/` so they can be tweaked freely without touching route or service logic:
+| Control | Behavior |
+|---|---|
+| Title "Don't Make Me Say" | Visible from the `lg` breakpoint up, absolutely at the left. Hidden on smaller widths so the tabs fit. |
+| Chat, How To Play, Leaderboard, About | Sets `currentPage`. The active tab is highlighted. Order is also the slide order. |
+| Theme | Toggles `isDarkMode`. The `dark` class is applied to `<html>` and to the app shell. No reload. Default for a first visit is light mode. |
+| Logout | Clears the access cookie and returns to the gate. Game state in `localStorage` is not wiped. |
 
-| File                                                             | Used when                                                                                                   |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `prompts/normalPrompt.ts` → `buildNormalPrompt(targetWord)` | Every normal game turn — instructs the LLM to**never** say the target word.                          |
-| `prompts/cheatPrompt.ts` → `buildCheatPrompt(targetWord)`   | Developer cheat mode only — instructs the LLM to say the target word**immediately and prominently**. |
+Moving to a page later in that order slides the old page off to the left and the new page in from the right. Moving earlier does the reverse. The animation is a 300ms tween. Inactive pages unmount (`AnimatePresence` `mode="wait"`), so local React state on a page is discarded. Anything that must survive lives in Zustand.
 
-`llm.ts` imports both builders and selects between them based on the `cheatMode` boolean passed from the chat route.
+A first visit with empty `localStorage` opens on How To Play (`currentPage` defaults to `howtoplay`). The `hasSeenGame` flag does **not** navigate anywhere. It only changes what the difficulty dialog does the first time the player confirms it.
 
-## Developer Cheat Mode
+---
 
-A dev-only shortcut that lets me force an instant win without having to outsmart the LLM. It is entirely controlled by two `.env` variables in `backend/.env`:
+## Chat
 
-```
-ENABLE_CHEAT_MODE=true     # set to false (or remove) to disable entirely
-CHEAT_TRIGGER=philliburton # the magic word the player types in any message
-```
+The chat page is a column that fills the area under the ribbon: instruction line, message scroller, bottom bar. Width is capped at Tailwind `max-w-4xl` and padded so narrow viewports shrink instead of scrolling sideways.
 
-### How it works
+### Difficulty dialog
 
-1. `chat.ts` reads `ENABLE_CHEAT_MODE` and `CHEAT_TRIGGER` once at module load.
-2. If `ENABLE_CHEAT_MODE=true`, each incoming message is checked for the trigger word (case-insensitive substring match).
-3. When detected, `cheatMode: true` is passed to `streamChatCompletion`, which substitutes `buildCheatPrompt` for `buildNormalPrompt`.
-4. The cheat prompt orders the LLM to say the target word immediately, guaranteeing `gameOver = true` in the `done` SSE event.
-5. A warning is printed to the backend console on startup when cheat mode is active: `[dev] Cheat mode ENABLED — trigger word: "philliburton"`.
+Shown when `difficulty` is null (first game, or a session that was reset) and again when the player presses reset. It cannot be dismissed with Escape or a backdrop click. The player picks one of four radio options and confirms.
 
-> **Never enable in production.** Set `ENABLE_CHEAT_MODE=false` or omit the variable entirely before deploying.
+- First confirm in a browser (`hasSeenGame` still false): stores the difficulty and loads a word. The player stays on Chat.
+- Later confirms: `resetSession()` clears the conversation, then the chosen difficulty is applied and a new word is fetched.
 
-## Shared UI — Confirm Dialog
+The dialog is positioned over the chat column only. The ribbon stays usable, so the player can leave Chat without choosing.
 
-A reusable `ConfirmDialog` component (`src/components/ConfirmDialog.tsx`) provides a consistent modal confirmation experience across the entire application.
+### Instruction line
 
-### Behaviour
+While the game is in progress the line reads: **I dare you to make me say "…"**, with the word in red. After a win it crossfades to **Dangit! I said "…"**, with the word in green.
 
-- Rendered as a **direct child of the `ChatPage` root container** (not inside the sticky bar), so the overlay covers the **full chat area** (messages + bars) while leaving the Top Ribbon unaffected.
-- A full-section `backdrop-blur-sm` overlay covers the host section. In light mode the tint darkens the content behind; in dark mode it lightens it. This draws the user's eye to the dialog without obscuring the rest of the page.
-- A centered card (matching the visual language of the PassphraseGate login card) animates in with a subtle scale + fade entrance and exits the same way.
-- Clicking the backdrop or pressing **Escape** cancels the dialog.
-- Props: `message`, optional `detail` (secondary muted line), `confirmLabel`, `cancelLabel`, `onConfirm`, `onCancel`.
+During a reroll the store's `targetWord` is briefly empty. The component keeps the last non-empty word on screen (or the literal `banana` if a word has never loaded) so the line does not flash blank.
 
-### Current usages
+### Messages
 
-| Location                                       | Trigger                         | Confirm action                                                  |
-| ---------------------------------------------- | ------------------------------- | --------------------------------------------------------------- |
-| **ChatPage** (victory — prompt state)   | Player presses "No, thanks."    | Transition VictoryBar to `'declined'` state (score not saved) |
-| **ChatPage** (victory — declined state) | Player presses the Reset button | Clear session and fetch new word                                |
-| **ChatPage** (normal input bar)          | Player presses the Reset button | Clear session and fetch new word                                |
+- Player bubbles are blue, on the right, with a token estimate under the text.
+- Model bubbles are on the left, on the layer-3 surface, and can use the full column.
+- Both columns share a grid with a 56px side track so the bubble edges line up with the composer and the reset/send buttons.
+- The list grows upward from the bottom of the scroller and smooth-scrolls to the newest message.
+- A 48px gradient fades the top of the list into the page background. There is no matching fade above the composer.
+- Scrollbars are hidden, not removed: the area still scrolls.
+- While the model is streaming, a typing indicator shows until the first character of the current reply arrives. An empty placeholder bubble is in the store during that gap and is not rendered.
 
-> **Architecture note:** `VictoryBar` no longer owns any `ConfirmDialog` renders. Instead it calls `onRequestDeclineConfirm(cb)` or `onRequestResetConfirm(cb)` and passes the action as a callback. `ChatPage` stores the pending callback in `pendingConfirm` state and renders the appropriate dialog at root level, ensuring the overlay correctly escapes the sticky `.bar-bottom` stacking context.
+### Empty chat and reroll
 
-### Adding a new usage
+If there are no messages, the scroller is a large repeat icon, "Click to reroll your target word", and a "Start chatting to begin" line. The icon is nearly invisible (9% opacity) until hover. Clicking it is allowed only when the message list is empty. The client tells `POST /api/target-word/reroll` which word was abandoned, clears the session, keeps the current difficulty, and lets the load effect fetch a replacement. The button is disabled while that fetch is in flight.
 
-Wrap the host section in a `relative` container, maintain a boolean state variable, and render `<ConfirmDialog>` conditionally inside that container:
+Reset (the 🔄 button) is a different action: it opens the difficulty dialog even after messages exist. It does not call the reroll endpoint. It does not ask for a separate confirmation.
 
-```tsx
-<div className="relative">
-  <YourSection />
-  {dialogOpen && (
-    <ConfirmDialog
-      message="Are you sure?"
-      confirmLabel="Yes"
-      cancelLabel="No"
-      onConfirm={handleConfirm}
-      onCancel={() => setDialogOpen(false)}
-    />
-  )}
-</div>
-```
+### Composer
 
-- Leaderboard Interface
-  - Center justified and limited to a comfortable reading width.
-  - Scrollable table containing winning user's names and token scores from lowest to highest
-- About Interface
-  - An about page describing the creator, and tech stack used.
-- How To Play Interface
-  - A page that describes how the game works and how to play it.
+Anchored at the bottom. The inner box is at least 180px (`BAR_BOTTOM`) so the message area does not jump when the victory UI replaces the composer. Extra content can make the bar taller.
 
-## Tech Stack
+- Session total on the left: the server's player-only count after each saved turn. Until that event, it includes the local estimate for the message just sent.
+- Textarea, 120px tall, three rows, not user-resizable. Enter sends. Shift+Enter inserts a newline. The field clears as soon as a send is accepted locally, before the model finishes. A rejected turn puts the draft back.
+- A small faded token estimate sits inside the textarea at the bottom left.
+- Reset above Send, in a 56px column. Reset is disabled only while a reply is in flight. Send is disabled while a reply is in flight, after a submitted win (`isGameOver`), or when the draft is empty.
+- An error string from the last failed load or turn is a red banner under the instruction line.
 
-My tech stack requirements were:
+### Win
 
-- Optimal fit for the project's requirements.
-- Performant, maintainable, and high security.
-- Current widespread industry adoption or highly-probable future widespread industry adoption.
-- Demonstrates in-demand professional developer skills.
-- DeepSeek API is my chosen LLM, with accommodations built in for other APIs including homebrew LLMs running off my own server.
+The server decides the win. A reply wins when it matches the target as a case-insensitive whole word (`\b`). The browser then:
 
-I was initially partial to .NET and MySQL given my familiarity with them, but I was open to learning a new language if better or more in-demand tools existed for this project.
+1. Replaces the session total and the last player bubble with the server's player-only counts.
+2. Appends an empty bubble that will be filled by the model's loss acknowledgement (a second streamed reply).
+3. Asks `GET /api/leaderboard/rank/:tokenCount?difficulty=` for a rank, using that player-only count and the selected difficulty. If the request fails, the UI still marks a win and leaves the rank empty.
+4. Sets `isWon` from the server. The instruction line switches. The winning bubble is the reply the server named, not a later message that repeats the word.
 
-## Other Features
+`WinningWord` renders each letter of each match in that bubble:
 
-### Security
+- Gold, silver, or bronze for ranks 1–3. Other ranks use the normal bubble text colour.
+- Letters rise and fall 6px in a left-to-right wave.
+- The colour flashes toward white (or blue, off the podium, in light mode). Rank 1 flashes three times per cycle, rank 2 twice, everyone else once.
 
-The site should be protected from DDoS attacks and bot activity.
+The loss acknowledgement is a separate model call. The prompt tells it the rank and the player token count. That second message often repeats the forbidden word. The highlight stays on the reply the server named, so it does not jump onto the tantrum.
 
-Additionally, access requires having to enter a simple rolling passphrase before the site loads. This is to reduce access to people who haven’t been given explicit access. For example, the rolling passphrase will be [my name][current month][current year], e.g. “AdamAugust2025”.
+### Win-flow bar
 
-No information about what the site is or how it works should be observable in any way before successfully entering the passphrase.
+Shown when `isWon` is true and `scoreSubmitted` is false. The sub-state is stored with the game, so leaving the page or reloading keeps prompt, name entry, or declined.
 
-### Dark/Light Mode
+1. **Prompt** — "You won!", the player token total, and the rank from the lookup above. "Submit my score!" or "No, thanks."
+2. **Name** — Recap line, a single-line name (required, at most 32 characters), confirm (✓) and back (✕). Enter confirms.
+3. **Declined** — Copy says to hit Reset. The textarea and send control are inert. Reset opens the difficulty dialog.
 
-There will be a toggle in the top left corner for light mode and dark mode, this will affect all elements on the entire site without requiring a reload. The site will initially load in light mode.
+"No, thanks" opens `ConfirmDialog` over the chat column (not over the ribbon): "Skip score submission?" Escape, the backdrop, or "Go back" cancels. "Skip" moves to the declined state. Backdrop clicks are ignored for 350ms so the click that opened the dialog cannot close it.
 
-### Lightweight Mobile Compatibility
+Confirming a name calls `POST /api/leaderboard` with the display name and the session id. The server returns the token count and rank it stored. On success `scoreSubmitted` is set, the session total becomes that count, `pendingHighlightId` is set to the new row id, and the app switches to the Leaderboard page. HTTP 409 ("already submitted") is treated as success without a highlight. Any other error stays on the name field. A missing session id does not post.
 
-The web page should be easily used and accessed on a wide variety of devices including smartphones while maintaining readability and usability. Page elements will resize to eliminate any potential horizontal scrolling.
+After a successful submit, returning to Chat shows the normal composer with the textarea and send button disabled (`isGameOver`). Reset still works. Reset of a game that has a session id also asks the server to mark that unfinished session complete.
 
-### Maximal Browser Compatibility
+A reload restores the win the server already locked. It does not scan the transcript to decide a win. The win-flow bar returns, and the rank is fetched again if it was not already stored. A submitted game stays on the locked composer.
 
-This project should be designed to maximize its compatibility will all modern commonly adopted web browsers.
+---
 
-### Minimalist UI
+## How To Play
 
-UI should be kept as simple as possible to reduce device load and simplify user experience.
+A single scrolling card: the challenge, a four-step flow, the "fewer tokens rank higher" rule, four strategy examples (association, riddles, storytelling, role play), and short interface tips. It does not mention difficulty, reroll, or the loss acknowledgement. The on-screen instruction quote in this page now matches the chat ("I dare you to make me say").
 
-### Smooth Interface Transitions
+---
 
-When navigating between the chat, leaderboard, and about interfaces, transition between them by sliding them horizontally into/out of frame smoothly.
+## Leaderboard
 
-For example, if I were in the Leaderboard interface, and I clicked Chat on the top Ribbon, the Leaderboard interface elements would slide offscreen to the right, and the Chat interface would slide in from offscreen from the left.
+A scrolling page, same max width as chat.
 
-### Interface Persistence
+- Header card explaining that fewer tokens rank higher.
+- Pill tabs: All, Easy, Normal, Hard, Nightmare. The selection is stored with the other interface preferences, so leaving the page keeps it.
+- Four stat tiles from `GET /api/leaderboard/stats`: games played, average tokens, best (minimum) score, worst (maximum) score. The request includes the selected difficulty, and All omits it.
+- Top scores from `GET /api/leaderboard?limit=100`, filtered when a difficulty tab is selected. Rank on screen is the row index in that response, not a rank stored in the database. Medals for the first three rows.
+- Each row shows name, the target word in quotes, the difficulty label when All is selected, the token count, and on `sm` and up the date and time.
+- If `llm_victory_message` is present, `LeaderboardMessage` shows it on one line. Whole-word occurrences of the target are bold. If the line is wider than the row, it is scrolled so the first occurrence sits in the centre when there is room on both sides, and a mask fades the clipped edges. When the whole message fits, a line that contains the word is centred.
 
-If the user changes between interfaces, the state of that interface persists so that when they navigate back to an interface they were previously on, its state hasn’t been reset. This is primarily used to maintain the state of the chat when going to and from the leaderboard and chat interface.
+When `pendingHighlightId` matches a loaded row, that row is scrolled to the centre and given a blue ring for 3 seconds. If it is not on the first page, the page keeps requesting the next 100 rows until the row appears, ten extra pages have been loaded, or the board ends. Show more does the same request when the player asks.
 
-## What’s Required?
+Empty and error states share the same empty-state component. Loading is five pulsing bars.
 
-- An overview of the determined tech stack and how it links together.
-- Suggested project workflow.
-- A development, testing, and implementation plan.
-- Any other expert suggestions by you to enhance the impression of this project by potential employers.
+---
+
+## About
+
+A short card: frontend stack (React, TypeScript, Tailwind, Framer Motion, Zustand) and backend stack (Node.js, Express, TypeScript, MySQL, server-side model calls), plus a feature list. An earlier version of this page named ASP.NET Core and Entity Framework. That stack was the original plan and is not what runs.
+
+---
+
+## Persistence
+
+| Data | Where | Survives refresh | Survives leaving the page |
+|---|---|---|---|
+| Signed-in flag | `sessionStorage` key `authenticated` | Yes, same tab. The cookie is what the API trusts | Yes |
+| Dark mode, current page, `hasSeenGame`, highlight id | `localStorage` key `ui-preferences` | Yes | Yes |
+| Messages, session tokens, target word and id, difficulty, session id, victory sub-state, `scoreSubmitted`, composer draft, victory-bar name | `localStorage` key `game-session` | Yes | Yes (store is global) |
+| `isWon`, `wonRank`, `victoryMessage`, loading flag | Memory only | A win is reconstructed from messages; rank is refetched | Kept until a full reload |
+| Leaderboard difficulty tab | `localStorage` key `ui-preferences` | Yes | Yes |
+
+---
+
+## Visual system
+
+Tailwind `darkMode: 'class'`. Neutrals are pure grey (the default Tailwind blue-tinted greys are overridden). Surfaces use a five-step `layer` scale:
+
+- Light mode runs from `#CCCCCC` (layer 1, page) up to white (layer 5).
+- Dark mode runs from black (layer 1) to `#333333` (layer 5).
+
+Shared component classes in `frontend/src/index.css`: `card`, `card-inner`, `bar-top`, `bar-bottom`, `app-heading`, `app-body`, `app-muted`, `btn-primary`, `btn-secondary`, `btn-ghost`, `btn-danger`, `app-textarea`. Primary actions are blue-600. Reset and secondary actions are grey.
+
+Body type is the system UI stack. The layout goal is a comfortable reading column, no horizontal page scroll, and no layout shift between playing and the win-flow bar.
+
+---
+
+## What this product is not
+
+- It is not account-based. Anyone with the monthly passphrase shares one anonymous gate.
+- It is not multiplayer and it does not use WebSockets. One browser, one session id, one model stream.
+- It does not show word statistics, even though the database stores them.
+- It does not route by URL. Refreshing always remounts the last `currentPage`, not a path like `/leaderboard`.
+- React Router is a dependency and is unused by the page switcher.

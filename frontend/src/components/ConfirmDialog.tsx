@@ -25,8 +25,8 @@
  *   </div>
  *
  * CURRENT USAGES:
- *  - ChatPage: "Decline score submission" confirmation
- *  - ChatPage: "Start a new game" (Reset) confirmation
+ *  - BottomBar: "Skip score submission?" when the player declines the victory prompt.
+ *    Reset does not use this dialog; it opens DifficultyDialog directly.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';

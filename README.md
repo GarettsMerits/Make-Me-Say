@@ -1,10 +1,18 @@
 # Don't Make Me Say
 
-A full-stack web game where you try to trick an LLM into saying a word it's been explicitly told to avoid.
+A full-stack web game. A target word sits above a chat with an LLM that has been told never to say it. You win by making it say that word anyway. Score is the number of tokens in your own messages — lower is better — and a win can be posted to a per-difficulty leaderboard.
 
-A target word is displayed at the top of the chat interface. The LLM has been prompted to never say it. Your goal is to craft messages clever enough to make it slip up anyway. Win, and your score, measured in how many tokens of input it took you, is posted to the leaderboard.
+The site is a private portfolio project. Nothing about the game is shown until a monthly passphrase is accepted.
 
-> **Note:** This project is actively in development. Core gameplay, the passphrase gate, leaderboard, and difficulty system are functional. Some planned features (post-win leaderboard navigation, session win-rehydration on reload) are partially or not yet implemented.
+Detailed design lives in `Documentation/`:
+
+| Document | What it covers |
+|---|---|
+| [Overview](Documentation/Overview.md) | Product intent, screens, and how the interface actually behaves |
+| [Gameplay](Documentation/Gameplay.md) | Difficulties, scoring, win detection, leaderboard presentation |
+| [Architecture](Documentation/Architecture.md) | Frontend, backend, database, API, prompts, and request flows |
+| [Development plan](Documentation/Development_and_Implementation_Plan.md) | What is built, what is not, and the original delivery plan |
+| [Issues](Documentation/Issues.md) | Unfinished work, bugs, design problems, and security findings |
 
 
 ## Chat Window
@@ -22,69 +30,74 @@ See yours and rival scores for victorious matches at the leaderboard!
 
 ---
 
-## Features
+## Features that work today
 
-- **Four difficulty levels** — Easy (common articles/pronouns), Normal (everyday nouns and verbs), Hard (specific but recognizable vocabulary), Nightmare (obscure and technical words)
-- **Live token counter** — Tracks your input token budget as you type and shows your projected leaderboard rank before you even send a message
-- **Leaderboard** — Per-difficulty rankings scored by total player input tokens, lowest wins; includes the exact LLM message that gave the game away
-- **Win sequence** — The target word in the winning LLM message is animated with a letter-wave and a rank-coloured shimmer (gold/silver/bronze)
-- **Passphrase gate** — The entire site is hidden behind a monthly rolling passphrase; nothing is visible before authentication
-- **Session persistence** — Navigating away from the chat and back preserves your conversation state
-- **Dark / light mode** — Full theme toggle with no page reload
-- **Smooth page transitions** — Horizontal slide animations between Chat, Leaderboard, How to Play, and About
-- **Developer cheat mode** — An env-flag-controlled trigger word that forces an instant win (for testing)
-- **Responsive layout** — Usable on phones without horizontal scrolling
+- **Four difficulties** — Easy, Normal, Hard, and Nightmare, each drawn from its own word list. A dialog asks for a difficulty before the first game and again on reset.
+- **Streaming chat** — The model replies over server-sent events. The server, not the browser, owns the target word and the conversation history.
+- **Win sequence** — When the model's reply contains the target word as a whole word, that word animates in the bubble, the instruction line changes, and a win-flow bar offers score submission or a decline.
+- **Leaderboard** — Rankings per difficulty (plus an All tab), lowest token count first, with the winning model message shown on one line.
+- **Passphrase gate** — `{PASSPHRASE_NAME}{Month}{Year}` (for example `AdamSeptember2026`). The value is checked on the server for every protected request.
+- **Theme and navigation** — Light and dark mode without a reload. Chat, How To Play, Leaderboard, and About slide horizontally. Chat messages survive navigation and refresh via `localStorage`.
+- **Reroll** — Before any message is sent, a large control in the empty chat requests a new word and records the reroll.
+- **Developer cheat mode** — Optional env flag. A trigger substring forces a prompt that tells the model to say the target word. Leave it off outside local testing.
+
+While you type, the composer shows a local estimate of the draft. After each turn the session total is replaced with the server's count of your own tokens. A submitted score is that same count, read from the stored session. The server does not accept a token total, word, or victory quote from the browser. See [Issues](Documentation/Issues.md) for what is still unfinished.
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | React 19, TypeScript, Tailwind CSS, Framer Motion, Zustand |
-| **Backend** | Node.js, Express, TypeScript (`tsx` for dev, `tsc` for prod) |
-| **Database** | MySQL 8.0 |
-| **LLM** | DeepSeek API (`deepseek-chat`) via streaming SSE |
-| **Token counting** | `tiktoken` (backend authoritative) + client-side estimate for live display |
-| **Security** | Helmet, CORS, `rate-limiter-flexible` (100 req/min general, 1 000 rerolls/hr) |
+| Frontend | React 19, TypeScript, Tailwind CSS, Framer Motion, Zustand, React Router DOM (installed; page changes are store-driven, not URL routes) |
+| Backend | Node.js, Express 4, TypeScript (`tsx` in development, `tsc` for production) |
+| Database | MySQL 8.0 via `mysql2` connection pool |
+| LLM | OpenRouter, one model per difficulty, when `OPENROUTER_API_KEY` is set. Direct DeepSeek `deepseek-chat` is the fallback. Streaming, called only from the server. See [Model roster](Documentation/Model_Roster.md) |
+| Token counting | `tiktoken` (`cl100k_base` via the gpt-4 encoding) on the server, player messages only. The browser estimates a draft locally and does not ship `tiktoken` |
+| HTTP hardening | Helmet, CORS locked to `FRONTEND_URL`, `rate-limiter-flexible` in memory (100 requests / 60 s general, 1 000 rerolls / hour) |
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 ├── backend/
 │   ├── src/
-│   │   ├── config/          # env.ts (validated env vars), llm.ts (API params)
-│   │   ├── db/              # connection pool, schema initialization
-│   │   ├── middleware/      # passphrase.ts (auth gate), rateLimiter.ts
-│   │   ├── prompts/         # LLM system prompt builders
-│   │   ├── routes/          # targetWord, chat, leaderboard, router index
-│   │   └── services/        # chatOrchestrator, llm, leaderboardService, sessionService
+│   │   ├── auth/            # HttpOnly access-cookie token
+│   │   ├── config/          # env.ts (validated secrets), llm.ts (model and timeouts)
+│   │   ├── db/              # connection pool, schema bootstrap on startup
+│   │   ├── domain/          # word match, player score, rank, request limits
+│   │   ├── http/            # client-safe errors
+│   │   ├── middleware/      # passphrase gate + /api/auth, rate limiter
+│   │   ├── prompts/         # normal, cheat, and loss system prompts
+│   │   ├── routes/          # target word, chat (SSE), leaderboard
+│   │   └── services/        # session, chat orchestration, LLM client, leaderboard
 │   ├── words/               # easy.csv, normal.csv, hard.csv, nightmare.csv
-│   ├── scripts/             # seedWords.ts — populates target_words from CSVs
+│   ├── scripts/seedWords.ts
 │   └── .env.example
-├── frontend/
-│   └── src/
-│       ├── components/      # Page components and all chat/leaderboard UI
-│       ├── hooks/           # useChatLogic, useBottomBar
-│       ├── store/           # Zustand slices (useGameStore, useUIStore)
-│       └── utils/api/       # Typed API client (passphrase, chat, leaderboard, targetWord)
+├── frontend/src/
+│   ├── components/          # gate, ribbon, pages, chat, leaderboard
+│   ├── hooks/               # useChatLogic, useBottomBar
+│   ├── store/               # Zustand game + UI stores, page-slide hook
+│   ├── styles/chatLayout.ts # shared widths so bubbles line up with the input
+│   └── utils/api/           # typed client for every endpoint
 ├── database/
-│   ├── schema.mysql         # Full schema — apply this to create all tables
-│   └── migrate.cjs          # Idempotent migration script for existing databases
-└── start-test.bat           # Windows: installs deps, starts MySQL, launches both servers
+│   ├── schema.mysql         # full schema applied on a fresh database
+│   ├── migrate.sql          # idempotent stored-procedure migration
+│   └── migrate.cjs          # idempotent Node migration; reads backend/.env
+└── start-test.bat           # Windows: deps, MySQL80 service, both servers
+    start-test.js            # cross-platform: deps and both servers (does not start MySQL)
 ```
 
 ---
 
-## Local Setup
+## Local setup
 
 ### Prerequisites
 
-- **Node.js** 18 or later
-- **MySQL 8.0** running locally (the Windows service name is assumed to be `MySQL80` by `start-test.bat`)
-- A **DeepSeek API key** — free tier available at [platform.deepseek.com](https://platform.deepseek.com/)
+- Node.js 18 or later
+- MySQL 8.0 running locally. `start-test.bat` expects the Windows service name `MySQL80`
+- An OpenRouter API key from [openrouter.ai/keys](https://openrouter.ai/keys), or a DeepSeek API key from [platform.deepseek.com](https://platform.deepseek.com/)
 
 ### 1 — Clone
 
@@ -100,31 +113,29 @@ cd backend
 cp .env.example .env
 ```
 
-Open `backend/.env` and fill in your values:
-
 | Variable | What to set |
 |---|---|
-| `DB_PASSWORD` | Your MySQL root password |
-| `DEEPSEEK_API_KEY` | Your DeepSeek API key |
-| `PASSPHRASE_NAME` | **Your name** (or any string) — the site passphrase will be `{name}{Month}{Year}`, e.g. `AliceJune2026` |
-| `LOG_PASSPHRASE` | Keep `true` so the current passphrase is printed to the backend console on startup |
+| `DB_PASSWORD` | MySQL password for `DB_USER` (default user `root`) |
+| `OPENROUTER_API_KEY` | Preferred key. When it is set, each difficulty uses the roster. A value that is empty or starts with `your_` does not count |
+| `DEEPSEEK_API_KEY` | Fallback key, used only when the OpenRouter key is absent. Startup exits if both keys are missing or still placeholders |
+| `PASSPHRASE_NAME` | Prefix of the monthly passphrase. Default in code is `Adam` if unset |
+| `LOG_PASSPHRASE` | `true` prints the current passphrase on startup. The default is `false` when the variable is omitted |
+| `ENABLE_CHEAT_MODE` | `false` unless you are testing wins |
+| `CHEAT_TRIGGER` | Substring that activates cheat mode. Default `philliburton` |
 
-All other values can stay as their defaults for local development.
+`PORT` defaults to `3001`. `FRONTEND_URL` defaults to `http://localhost:3000` and is the only CORS origin.
 
-### 3 — Set up the database
+### 3 — Create the database
+
+From the repo root, against an empty or already-created server:
 
 ```bash
-# From the repo root — applies the full schema (safe to run on a fresh or existing DB)
 mysql -u root -p < database/schema.mysql
 ```
 
-If you already have the database from a previous setup and only need to apply migrations:
+That file creates `dont_make_me_say` and every table. Startup also runs the same file statement-by-statement (`CREATE TABLE IF NOT EXISTS`), so a database that already exists is left in place. **Existing tables are not altered** by startup. If you have an older database, read the migration warning in [Issues](Documentation/Issues.md) before trusting `database/migrate.cjs`.
 
-```bash
-node database/migrate.cjs
-```
-
-### 4 — Seed the word lists
+### 4 — Seed words
 
 ```bash
 cd backend
@@ -132,23 +143,18 @@ npm install
 npx tsx scripts/seedWords.ts
 ```
 
-This reads the four CSV files in `backend/words/` and populates the `target_words` table. It is safe to run multiple times (uses `INSERT IGNORE`).
+The script lowercases each CSV entry and uses `INSERT ... ON DUPLICATE KEY UPDATE`, so it is safe to re-run. The `word` column is unique across all difficulties: a word that appears in two CSVs keeps the difficulty of whichever file was seeded last.
 
-### 5 — Install frontend dependencies
+### 5 — Install and start
 
 ```bash
 cd ../frontend
 npm install
 ```
 
-### 6 — Start both servers
+**Windows:** run `start-test.bat` from the repo root. It installs missing `node_modules`, starts the `MySQL80` service if needed (an elevated prompt is required when the service is stopped), and opens the backend and frontend in their own console windows.
 
-**Windows — easiest option:** run `start-test.bat` from the repo root. It will:
-- Install any missing `node_modules` in both `backend/` and `frontend/`
-- Start the `MySQL80` service if it isn't already running (requires an elevated prompt if MySQL isn't running)
-- Open the backend (`localhost:3001`) and frontend (`localhost:3000`) each in their own terminal window
-
-**Manual alternative:**
+**Manual, any OS:**
 
 ```bash
 # Terminal 1
@@ -158,51 +164,61 @@ cd backend && npm run dev
 cd frontend && npm start
 ```
 
-### 7 — Open the app
+`npm run dev` at the repo root runs `start-test.js`, which installs dependencies if needed and starts both servers. It does not start MySQL.
 
-Navigate to [http://localhost:3000](http://localhost:3000).
+### 6 — Open the app
 
-The site will prompt for a passphrase. Check the backend terminal — with `LOG_PASSPHRASE=true` the current passphrase is printed on startup:
-
-```
-[debug] Current passphrase: AliceJune2026
-```
-
-Enter it to access the game.
+Go to [http://localhost:3000](http://localhost:3000). The passphrase is not printed unless `LOG_PASSPHRASE=true`. The month name is always English (`en-US`), so the secret does not change with the server's locale.
 
 ---
 
-## Passphrase System
-
-The site is protected by a monthly rolling passphrase to limit access to people you've explicitly told about it. The formula is:
+## Passphrase
 
 ```
 {PASSPHRASE_NAME}{Month}{Year}
 ```
 
-Set `PASSPHRASE_NAME` in `backend/.env` to whatever prefix you want. With `PASSPHRASE_NAME=Demo` the June 2026 passphrase would be `DemoJune2026`. The passphrase automatically changes on the first of every month with no code change needed.
+`POST /api/auth/verify` checks the body and sets an HttpOnly cookie named `dmms_access`. The cookie holds an HMAC of the passphrase, not the passphrase. Every other `/api/*` route requires that cookie. The browser also stores a boolean `authenticated` flag in `sessionStorage` so the gate can skip itself; a refresh calls `GET /api/auth/me` and drops the flag if the cookie is missing. Logout calls `POST /api/auth/logout`, which clears the cookie. Verify attempts are limited to 10 per minute per address.
+
+This is an access courtesy, not an account system. The formula is in this repository. See [Issues](Documentation/Issues.md).
 
 ---
 
-## Developer Cheat Mode
-
-For testing the win sequence without outsmarting the LLM, set in `backend/.env`:
+## Developer cheat mode
 
 ```dotenv
 ENABLE_CHEAT_MODE=true
 CHEAT_TRIGGER=yourSecretWord
 ```
 
-Any message containing the trigger word will force the LLM to immediately say the target word. A warning is printed to the backend console when this is active. **Never enable in production.**
+If enabled, any player message that contains the trigger (case-insensitive substring) swaps in the cheat system prompt for that turn. The backend logs a warning the first time this happens. Do not enable it on a shared server.
 
 ---
 
-## Security Notes
+## Scripts
 
-- `backend/.env` is in `.gitignore` — your API key and DB password are never committed
-- Database data is never committed — only `database/schema.mysql` (structure) is tracked
-- The passphrase gate hides all game content and API endpoints from unauthenticated requests
-- Rate limiting: 100 requests/min per IP (general), 1 000 rerolls/hr per IP
+| Location | Command | Effect |
+|---|---|---|
+| Repo root | `npm run dev` / `npm run test:start` | `start-test.js` |
+| Repo root | `npm run install:all` | `npm install` in `backend/` and `frontend/` |
+| `backend/` | `npm run dev` | `tsx watch src/index.ts` |
+| `backend/` | `npm run build` && `npm start` | Compile to `dist/`, then `node dist/index.js` |
+| `frontend/` | `npm start` | Create React App dev server on port 3000 |
+| `frontend/` | `npm run build` | Production bundle in `frontend/build/` |
+| `frontend/` | `npm test` | Jest via Create React App. `App.test.tsx` covers the passphrase gate |
+| `backend/` | `npm test` | Node's test runner, via `tsx`, for the domain and auth units |
+
+GitHub Actions (`.github/workflows/ci-cd.yml`) installs both packages, runs both test suites, builds both packages, and runs `npm audit`. The backend job's lint step is optional and has no lint script. The deploy jobs print a message and do not deploy. Advisories inside Create React App's dependency tree are reported and do not fail the job. The backend audit still fails the job on a moderate or higher advisory.
+
+---
+
+## Security notes
+
+- `backend/.env` is gitignored. Do not commit API keys or database passwords.
+- Only `database/schema.mysql` (structure) is meant to be committed. Data dumps matching `database/dump*.sql` and `database/export*.sql` are gitignored.
+- Game and leaderboard routes reject requests that do not present the current access cookie.
+- SQL values that come from clients are bound parameters. `LIMIT` and `OFFSET` are interpolated only after `Math.trunc`.
+- A leaderboard row is built from the stored session: player-only tiktoken count, target word, difficulty, and the first model reply that contains the word. The request body is a display name and a session id. `leaderboard.session_id` is unique.
 
 ---
 

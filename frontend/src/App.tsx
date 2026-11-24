@@ -1,47 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import PassphraseGate from './components/PassphraseGate';
 import MainApplication from './components/MainApplication';
-import { setPassphrase, clearPassphrase } from './utils/api';
+import { checkSession, logout } from './utils/api';
 import './App.css';
 
-// sessionStorage keys
+/** Remembers that this tab passed the gate. The secret itself stays in an HttpOnly cookie. */
 const SESSION_AUTHENTICATED_KEY = 'authenticated';
-const SESSION_PASSPHRASE_KEY = 'passphrase';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => sessionStorage.getItem(SESSION_AUTHENTICATED_KEY) === 'true',
+  );
 
-  /**
-   * On mount, check whether the user was already authenticated in this browser
-   * session. If so, restore the passphrase into the api module so that
-   * subsequent API calls include the correct x-passphrase header.
-   *
-   * Without this, a page refresh would clear the module-level passphrase in
-   * api.ts while sessionStorage still reported authenticated=true, causing
-   * every API call to silently 401.
-   */
   useEffect(() => {
-    const authenticated = sessionStorage.getItem(SESSION_AUTHENTICATED_KEY);
-    const storedPassphrase = sessionStorage.getItem(SESSION_PASSPHRASE_KEY);
+    // Older builds stored the passphrase here. Drop it so it cannot linger.
+    sessionStorage.removeItem('passphrase');
+    if (sessionStorage.getItem(SESSION_AUTHENTICATED_KEY) !== 'true') return;
 
-    if (authenticated === 'true' && storedPassphrase) {
-      setPassphrase(storedPassphrase);
-      setIsAuthenticated(true);
-    }
+    let cancelled = false;
+    checkSession().catch(() => {
+      if (cancelled) return;
+      sessionStorage.removeItem(SESSION_AUTHENTICATED_KEY);
+      setIsAuthenticated(false);
+    });
+    return () => { cancelled = true; };
   }, []);
 
-  const handleAuthenticated = (passphrase: string) => {
-    // Persist both the flag and the passphrase so a refresh can restore state
+  const handleAuthenticated = () => {
     sessionStorage.setItem(SESSION_AUTHENTICATED_KEY, 'true');
-    sessionStorage.setItem(SESSION_PASSPHRASE_KEY, passphrase);
     setIsAuthenticated(true);
   };
 
   const handleLogout = () => {
-    clearPassphrase();
-    sessionStorage.removeItem(SESSION_AUTHENTICATED_KEY);
-    sessionStorage.removeItem(SESSION_PASSPHRASE_KEY);
-    setIsAuthenticated(false);
+    logout().finally(() => {
+      sessionStorage.removeItem(SESSION_AUTHENTICATED_KEY);
+      sessionStorage.removeItem('passphrase');
+      setIsAuthenticated(false);
+    });
   };
 
   if (!isAuthenticated) {

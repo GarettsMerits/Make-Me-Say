@@ -1,5 +1,5 @@
 /**
- * DeclinedPanel — victory bar state: 'declined'
+ * DeclinedPanel — win-flow bar state: 'declined'
  *
  * Shown when the player opts out of submitting their score.
  * Mirrors the standard MessageInputBox layout but with the textarea and
@@ -9,12 +9,14 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { MESSAGE_GRID, INPUT_BOX } from '../../../styles/chatLayout';
+import { formatTokenCount } from '../../../utils/tokenCounter';
 
 export interface DeclinedPanelProps {
+  score: number;
   onReset: () => void;
 }
 
-const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ onReset }) => (
+const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ score, onReset }) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
@@ -24,7 +26,8 @@ const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ onReset }) => (
   >
     {/* Status line */}
     <div className="flex justify-between items-center mb-2 text-sm app-muted">
-      <span>Game over — hit Reset to play again.</span>
+      <span>Score: {formatTokenCount(score)}</span>
+      <span>Reset ends this round.</span>
     </div>
 
     {/* Disabled input + button grid (mirrors MessageInputBox layout) */}
@@ -59,7 +62,7 @@ const DeclinedPanel: React.FC<DeclinedPanelProps> = ({ onReset }) => (
           type="button"
           disabled
           className="flex-1 btn-primary flex items-center justify-center text-xl opacity-40 cursor-not-allowed"
-          title="Win the game to submit"
+          title="This round can be read or reset"
         >
           →
         </button>

@@ -10,7 +10,7 @@
  * - Display loading indicator while waiting for LLM response
  * - Auto-scroll to keep latest message visible
  */
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { ChatMessage as ChatMessageType } from '../../store';
 import { MESSAGE_GRID } from '../../styles/chatLayout';
@@ -24,10 +24,12 @@ import RerollOverlay from './RerollOverlay';
 interface ChatMessagesContainerProps {
   messages: ChatMessageType[];     // Array of chat messages to display
   isLoading: boolean;               // Whether LLM is currently generating a response
-  /** The target word to highlight in the winning LLM message (only when isWon). */
+  /** The target word to paint inside the reply the server already named. */
   winningWord?: string;
+  /** Id of the model reply the server named as the win. */
+  winningMessageId?: string | null;
   /** The rank achieved, forwarded to WinningWord for medal colouring. */
-  wonRank?: number;
+  wonRank?: number | null;
   /** Called when the user clicks the reroll overlay (only visible with no messages). */
   onReroll?: () => void;
   /** True while the target-word fetch is in flight — disables the reroll button. */
@@ -45,31 +47,12 @@ const ChatMessagesContainer: React.FC<ChatMessagesContainerProps> = ({
   messages, 
   isLoading,
   winningWord,
+  winningMessageId,
   wonRank,
   onReroll,
   isRerolling,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  /**
-   * Id of the FIRST LLM message that contains the winning word.
-   *
-   * We search forward (not in reverse) so the effect permanently attaches to
-   * the original winning bubble. The loss-acknowledgement message often also
-   * mentions the target word ("I said 'X'!"), and without this the highlight
-   * would jump to that later message once it starts streaming.
-   *
-   * useMemo means the id is computed fresh only when messages or winningWord
-   * change, but because we take the first match it will resolve on the same
-   * message for the lifetime of the session.
-   */
-  const winningMessageId = useMemo(() => {
-    if (!winningWord) return undefined;
-    const lw = winningWord.toLowerCase();
-    return messages.find(
-      (m) => m.sender === 'llm' && m.text.toLowerCase().includes(lw)
-    )?.id;
-  }, [messages, winningWord]);
 
   /**
    * Auto-scroll to bottom when new content appears
@@ -132,7 +115,7 @@ const ChatMessagesContainer: React.FC<ChatMessagesContainerProps> = ({
             - Left column: TypingIndicator component with animated dots
             - Right column: spacer to match message layout
           */}
-          {isLoading && (
+          {isLoading && messages[messages.length - 1]?.text === '' && (
             <div className={`grid ${MESSAGE_GRID.gridColumns} ${MESSAGE_GRID.gridGap}`}>
               
               {/* Animated typing bubble component */}

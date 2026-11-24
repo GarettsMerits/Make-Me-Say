@@ -1,46 +1,34 @@
-# Getting Started with Create React App
+# Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 single-page app for Don't Make Me Say, created with Create React App (`react-scripts` 5).
 
-## Available Scripts
+Product and design documentation is in the repository root: [README](../README.md) and [Documentation/](../Documentation/Overview.md).
 
-In the project directory, you can run:
+## Scripts
 
-### `npm start`
+From this directory:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+| Command | Effect |
+|---|---|
+| `npm start` | Dev server at http://localhost:3000. The API base URL is `REACT_APP_BACKEND_URL`, or `http://localhost:3001` if that variable is unset. |
+| `npm test` | Jest in watch mode. `src/App.test.tsx` checks that the passphrase gate renders. |
+| `npm run build` | Production build in `build/`. |
+| `npm run eject` | One-way escape hatch for Create React App. Not required for this project. |
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+The dev server does not proxy `/api`. The browser calls the backend origin directly with `credentials: 'include'`, and the backend CORS config must allow `http://localhost:3000`. A Create React App proxy would buffer the chat stream.
 
-### `npm test`
+## Layout
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```
+src/
+  App.tsx                 Passphrase gate, then MainApplication
+  components/             Pages and chat/leaderboard UI
+  hooks/useChatLogic.ts   Target word, streaming turns, win rehydration
+  hooks/useBottomBar.ts   Composer, victory flow, score submit
+  store/                  Zustand: game session and UI preferences
+  styles/chatLayout.ts    Shared column widths and bar height
+  utils/api/              HTTP and SSE client
+  utils/tokenCounter.ts   Client-side token estimate
+```
 
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+Page changes do not use the URL. `currentPage` in the UI store selects Chat, How To Play, Leaderboard, or About, and Framer Motion slides between them.

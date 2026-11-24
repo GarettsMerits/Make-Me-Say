@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS leaderboard (
     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     session_id VARCHAR(255),
     
+    UNIQUE KEY uniq_leaderboard_session (session_id),
     INDEX idx_token_count (token_count),
     INDEX idx_completed_at (completed_at),
     INDEX idx_target_word (target_word),
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     completed BOOLEAN DEFAULT FALSE,
     score_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+    declined BOOLEAN NOT NULL DEFAULT FALSE,
     
     INDEX idx_created_at (created_at),
     INDEX idx_last_activity (last_activity),

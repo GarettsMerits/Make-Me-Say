@@ -14,7 +14,6 @@ import { INPUT_BOX, MESSAGE_GRID } from '../../../styles/chatLayout';
 
 interface InputActionButtonsProps {
   isLoading: boolean;
-  hasMessages: boolean;
   hasInput: boolean;
   /** When true, the send button is disabled but reset remains active. */
   isGameOver?: boolean;
@@ -32,12 +31,11 @@ interface InputActionButtonsProps {
  * - Animate interactions
  * 
  * BUTTON STATES:
- * - Reset: Disabled when loading or no messages exist
- * - Submit: Disabled when loading or no input text
+ * - Reset: Disabled only while a reply is in flight
+ * - Submit: Disabled when loading, after a submitted win, or when the draft is empty
  */
 const InputActionButtons: React.FC<InputActionButtonsProps> = ({
   isLoading,
-  hasMessages,
   hasInput,
   isGameOver = false,
   onReset,
@@ -62,6 +60,7 @@ const InputActionButtons: React.FC<InputActionButtonsProps> = ({
         className="flex-1 btn-secondary flex items-center justify-center text-2xl"
         disabled={isLoading}
         title="Reset / change difficulty"
+        aria-label="Reset and choose a difficulty"
       >
         🔄
       </motion.button>

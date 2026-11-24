@@ -1,18 +1,18 @@
 /**
- * PromptPanel — victory bar state: 'prompt'
+ * PromptPanel — win-flow bar state: 'prompt'
  *
  * Congratulates the player, shows their token count and leaderboard rank,
  * and offers two actions: submit score or decline.
  */
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MESSAGE_GRID } from '../../../styles/chatLayout';
 import { formatTokenCount } from '../../../utils/tokenCounter';
-import { rankLabel, rankColourClass } from '../../../utils/rankHelpers';
+import { rankLabel, rankColourClass, leaderboardPlaceSentence } from '../../../utils/rankHelpers';
 
 export interface PromptPanelProps {
   sessionTokens: number;
-  wonRank: number;
+  wonRank: number | null;
+  rankUnavailable: boolean;
   onSubmit: () => void;
   onDecline: () => void;
 }
@@ -20,6 +20,7 @@ export interface PromptPanelProps {
 const PromptPanel: React.FC<PromptPanelProps> = ({
   sessionTokens,
   wonRank,
+  rankUnavailable,
   onSubmit,
   onDecline,
 }) => (
@@ -38,24 +39,26 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
       <p className="text-sm app-muted">
         It took you{' '}
         <span className="font-medium app-muted-bright">{formatTokenCount(sessionTokens)}</span>
-        {' '}to crack it — that puts you at{' '}
-        <span className={`font-semibold ${rankColourClass(wonRank)}`}>
-          {rankLabel(wonRank)}
-        </span>
-        {' '}on the leaderboard.
+        {' '}to crack it.{' '}
+        {wonRank === null ? leaderboardPlaceSentence(null, rankUnavailable) : (
+          <>
+            Your provisional place is{' '}
+            <span className={`font-semibold ${rankColourClass(wonRank)}`}>
+              {rankLabel(wonRank)}
+            </span>
+            .
+          </>
+        )}
       </p>
     </div>
 
     {/* Action buttons */}
-    <div
-      className="grid gap-2"
-      style={{ gridTemplateColumns: `1fr ${MESSAGE_GRID.rightColumnWidthPx}` }}
-    >
+    <div className="grid grid-cols-3 gap-2">
       <motion.button
         type="button"
         onClick={onSubmit}
         whileTap={{ scale: 0.97 }}
-        className="btn btn-primary py-2 text-sm font-medium"
+        className="btn btn-primary col-span-2 py-2 text-sm font-medium"
       >
         Submit my score!
       </motion.button>
@@ -64,7 +67,7 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
         type="button"
         onClick={onDecline}
         whileTap={{ scale: 0.97 }}
-        className="btn btn-secondary py-2 text-sm"
+        className="btn btn-secondary col-span-1 py-2 px-2 text-sm"
         title="Skip score submission"
       >
         No, thanks.

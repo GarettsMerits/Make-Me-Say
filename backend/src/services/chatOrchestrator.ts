@@ -10,24 +10,19 @@
  * response lifecycle — that stays in the route.
  */
 import type { Response } from 'express';
-import { streamChatCompletion, countTokens, type ChatMessage } from './llm.js';
-import { persistExchange, fetchRankContext, type StoredMessage, type SessionRow } from './sessionService.js';
+import { InMemoryLeaderboard } from '../domain/InMemoryLeaderboard.js';
+import { roundForTranscript } from '../domain/Round.js';
+import { countTokens, streamChatCompletion, type ChatMessage } from './llm.js';
+import { getRank } from './leaderboardService.js';
+import type { ScoredMessage } from '../domain/PlayerScore.js';
+import { persistExchange, type SessionRow } from './sessionService.js';
+import type { Difficulty } from '../types.js';
 
 // ─── SSE helpers ──────────────────────────────────────────────────────────────
 
 /** Write a named SSE event with a JSON payload. */
 function sseWrite(res: Response, event: string, data: Record<string, unknown>): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-// ─── Target-word detection ────────────────────────────────────────────────────
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function didLlmSayWord(response: string, targetWord: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(targetWord)}\\b`, 'i').test(response);
 }
 
 // ─── Cheat-mode config ────────────────────────────────────────────────────────
@@ -61,6 +56,7 @@ async function streamMainTurn(
   targetWord: string,
   llmMessages: ChatMessage[],
   userMessage: string,
+  difficulty: Difficulty,
 ): Promise<string> {
   const cheatMode = resolveCheatMode(userMessage);
   let llmResponse = '';
@@ -71,6 +67,7 @@ async function streamMainTurn(
     maxTokens: 500,
     temperature: 0.7,
     cheatMode,
+    difficulty,
   })) {
     llmResponse += chunk;
     sseWrite(res, 'chunk', { text: chunk });
@@ -90,7 +87,8 @@ async function streamLossTurn(
   targetWord: string,
   llmMessages: ChatMessage[],
   llmResponse: string,
-  totalTokens: number,
+  playerTokens: number,
+  difficulty: Difficulty,
 ): Promise<void> {
   const lossHistory: ChatMessage[] = [
     ...llmMessages,
@@ -106,7 +104,15 @@ async function streamLossTurn(
     },
   ];
 
-  const { rank: lossRank, total: lossTotalEntries } = await fetchRankContext(totalTokens);
+  let lossRank = 1;
+  let lossTotalEntries = 1;
+  try {
+    const ranked = await getRank(playerTokens, difficulty);
+    lossRank = ranked.rank;
+    lossTotalEntries = Math.max(ranked.total, 1);
+  } catch (err) {
+    console.warn('Could not load loss-prompt rank:', err);
+  }
 
   let lossResponse = '';
   try {
@@ -116,9 +122,10 @@ async function streamLossTurn(
       maxTokens:       300,
       temperature:     0.9,
       lossMode:        true,
-      lossTokenCount:  totalTokens,
+      lossTokenCount:  playerTokens,
       lossRank,
       lossTotalEntries,
+      difficulty,
     })) {
       lossResponse += chunk;
       sseWrite(res, 'loss-chunk', { text: chunk });
@@ -136,9 +143,10 @@ export interface TurnInput {
   sessionId: string;
   targetWord: string;
   sessionData: SessionRow | null;
-  storedMessages: StoredMessage[];
+  storedMessages: ScoredMessage[];
   llmMessages: ChatMessage[];
   userMessage: string;
+  difficulty: Difficulty;
 }
 
 /**
@@ -151,15 +159,28 @@ export interface TurnInput {
  * Throws on main-stream failure (caller should emit an `error` event).
  */
 export async function runTurn(res: Response, input: TurnInput): Promise<void> {
-  const { sessionId, targetWord, sessionData, storedMessages, llmMessages, userMessage } = input;
+  const { sessionId, targetWord, sessionData, storedMessages, llmMessages, userMessage, difficulty } = input;
 
   // 1. Stream main response
-  const llmResponse = await streamMainTurn(res, targetWord, llmMessages, userMessage);
+  const llmResponse = await streamMainTurn(res, targetWord, llmMessages, userMessage, difficulty);
 
   // 2. Persist
-  const userTokens  = countTokens(userMessage);
-  const llmTokens   = countTokens(llmResponse);
-  const gameOver    = didLlmSayWord(llmResponse, targetWord);
+  const userTokens = countTokens(userMessage);
+  const llmTokens = countTokens(llmResponse);
+  const round = roundForTranscript({
+    targetWord,
+    difficulty,
+    leaderboard: new InMemoryLeaderboard(),
+    countTokens,
+    messages: [
+      ...storedMessages,
+      { sender: 'user', text: userMessage, tokenCount: userTokens },
+      { sender: 'llm', text: llmResponse, tokenCount: llmTokens },
+    ],
+  });
+  // The winning reply is this one only when this reply is what locked the score.
+  const gameOver = round.winningReply() === llmResponse;
+  const playerTokens = round.figure();
 
   const totalTokens = await persistExchange(
     sessionId,
@@ -170,21 +191,18 @@ export async function runTurn(res: Response, input: TurnInput): Promise<void> {
     userTokens,
     llmResponse,
     llmTokens,
-    gameOver,
+    // A win locks the score and opens the win flow. It does not end the round.
+    false,
+    difficulty,
   );
-
-  // Tally only the player's own tokens (prior turns + this turn) for the
-  // loss prompt — LLM response tokens are not part of the player's score.
-  const priorUserTokens = storedMessages
-    .filter((m) => m.sender === 'user')
-    .reduce((sum, m) => sum + (m.tokenCount ?? 0), 0);
-  const playerTokens = priorUserTokens + userTokens;
 
   // 3. Done event
   sseWrite(res, 'done', {
     sessionId,
     tokenCount: llmTokens,
+    userTokenCount: userTokens,
     totalTokens,
+    playerTokens,
     gameOver,
     targetWordDetected: gameOver,
     ...(gameOver ? { llmVictoryMessage: llmResponse } : {}),
@@ -192,6 +210,6 @@ export async function runTurn(res: Response, input: TurnInput): Promise<void> {
 
   // 4. Loss acknowledgement
   if (gameOver) {
-    await streamLossTurn(res, targetWord, llmMessages, llmResponse, playerTokens);
+    await streamLossTurn(res, targetWord, llmMessages, llmResponse, playerTokens, difficulty);
   }
 }

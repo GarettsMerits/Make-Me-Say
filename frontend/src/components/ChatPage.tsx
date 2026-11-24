@@ -3,7 +3,7 @@
  *
  * RESPONSIBILITY: pure composition.
  *  - Runs useChatLogic (LLM streaming, win detection, session management)
- *  - Delegates all bottom-bar state (input, dialogs, victory flow) to BottomBar
+ *  - Delegates all bottom-bar state (input, dialogs, win flow) to BottomBar
  *  - No business logic here
  *
  * LAYOUT (absolute inset-0, flex column):
@@ -13,7 +13,7 @@
  *  ├─────────────────────────────┤  ← flex-1 (ChatScrollArea)
  *  │  Scrollable messages        │
  *  ├─────────────────────────────┤  ← shrink-0 (BottomBar)
- *  │  Input / Victory panels     │
+ *  │  Input / win-flow bar       │
  *  └─────────────────────────────┘
  *  ConfirmDialogs are rendered inside BottomBar's fragment and surface as
  *  direct DOM siblings of the bar, covering the full chat area via absolute
@@ -36,8 +36,10 @@ const ChatPage: React.FC = () => {
     handleDifficultyConfirm,
     isLoading,
     isWon,
+    winningMessageId,
     wonRank,
     error,
+    rejectedDraft,
     handleSubmit,
     handleReset,
     handleReroll,
@@ -71,16 +73,18 @@ const ChatPage: React.FC = () => {
         messages={messages}
         isLoading={isLoading}
         isWon={isWon}
+        winningMessageId={winningMessageId}
         targetWord={targetWord}
         wonRank={wonRank}
         onReroll={handleReroll}
         isRerolling={isRerolling}
       />
 
-      {/* Bottom bar — input, victory flow, dialogs */}
+      {/* Bottom bar — input, win-flow bar, dialogs */}
       <BottomBar
         onSubmit={handleSubmit}
         onReset={handleReset}
+        rejectedDraft={rejectedDraft}
       />
 
     </div>
