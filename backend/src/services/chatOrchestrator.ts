@@ -10,8 +10,7 @@
  * response lifecycle — that stays in the route.
  */
 import type { Response } from 'express';
-import { InMemoryLeaderboard } from '../domain/InMemoryLeaderboard.js';
-import { roundForTranscript } from '../domain/Round.js';
+import { readStoredRound } from '../domain/StoredRound.js';
 import { countTokens, streamChatCompletion, type ChatMessage } from './llm.js';
 import { getRank } from './leaderboardService.js';
 import type { ScoredMessage } from '../domain/PlayerScore.js';
@@ -167,20 +166,21 @@ export async function runTurn(res: Response, input: TurnInput): Promise<void> {
   // 2. Persist
   const userTokens = countTokens(userMessage);
   const llmTokens = countTokens(llmResponse);
-  const round = roundForTranscript({
+  const round = readStoredRound({
     targetWord,
     difficulty,
-    leaderboard: new InMemoryLeaderboard(),
     countTokens,
+    declined: Boolean(sessionData?.declined),
+    scoreSubmitted: Boolean(sessionData?.score_submitted),
+    ended: Boolean(sessionData?.completed),
     messages: [
       ...storedMessages,
       { sender: 'user', text: userMessage, tokenCount: userTokens },
       { sender: 'llm', text: llmResponse, tokenCount: llmTokens },
     ],
   });
-  // The winning reply is this one only when this reply is what locked the score.
-  const gameOver = round.winningReply() === llmResponse;
-  const playerTokens = round.figure();
+  const gameOver = round.thisReplyWon;
+  const playerTokens = round.figure;
 
   const totalTokens = await persistExchange(
     sessionId,

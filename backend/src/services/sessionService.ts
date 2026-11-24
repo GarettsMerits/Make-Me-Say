@@ -10,9 +10,8 @@
  */
 import pool from '../db/connection.js';
 import { asDifficulty } from '../domain/difficulty.js';
-import { InMemoryLeaderboard } from '../domain/InMemoryLeaderboard.js';
 import { parseStoredMessages, type ScoredMessage } from '../domain/PlayerScore.js';
-import { roundForTranscript } from '../domain/Round.js';
+import { readStoredRound } from '../domain/StoredRound.js';
 import { HttpError } from '../http/HttpError.js';
 import type { Difficulty } from '../types.js';
 import { countTokens } from './llm.helpers.js';
@@ -28,6 +27,7 @@ export interface SessionRow {
   messages: ScoredMessage[] | string;
   completed: boolean;
   declined?: boolean;
+  score_submitted?: boolean;
   created_at: string;
   last_activity: string;
 }
@@ -129,14 +129,15 @@ export async function resolveSession(
 
   const storedMessages = parseStoredMessages(sessionData.messages);
   const difficulty = await difficultyForWord(sessionData.target_word, sessionData.difficulty);
-  const round = roundForTranscript({
+  const round = readStoredRound({
     targetWord: sessionData.target_word,
     difficulty,
     messages: storedMessages,
-    leaderboard: new InMemoryLeaderboard(),
     countTokens,
+    declined: Boolean(sessionData.declined),
+    ended: Boolean(sessionData.completed),
   });
-  if (round.scoreLocked()) {
+  if (round.locked) {
     throw new HttpError(409, 'This round is already won.');
   }
 

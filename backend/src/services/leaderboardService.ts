@@ -6,10 +6,9 @@
  */
 import pool from '../db/connection.js';
 import { asDifficulty } from '../domain/difficulty.js';
-import { InMemoryLeaderboard } from '../domain/InMemoryLeaderboard.js';
 import { LeaderboardRank } from '../domain/LeaderboardRank.js';
 import { parseStoredMessages } from '../domain/PlayerScore.js';
-import { roundForTranscript } from '../domain/Round.js';
+import { readStoredRound } from '../domain/StoredRound.js';
 import { HttpError } from '../http/HttpError.js';
 import { countTokens } from './llm.helpers.js';
 import type { Difficulty } from '../types.js';
@@ -163,19 +162,20 @@ export async function submitSessionScore(
       ?? asDifficulty(session.session_difficulty)
       ?? 'normal';
 
-    const committed = new InMemoryLeaderboard();
-    const round = roundForTranscript({
+    const round = readStoredRound({
       targetWord,
       difficulty,
       messages,
-      leaderboard: committed,
       countTokens,
+      declined: Boolean(session.declined),
+      scoreSubmitted: Boolean(session.score_submitted),
+      ended: Boolean(session.completed),
     });
-    round.commit(playerName);
-    const entry = committed.entries()[0];
-    if (!entry) throw new HttpError(400, 'This session has no recorded win');
-    const tokenCount = entry.score;
-    const victoryMessage = entry.winningReply;
+    if (!round.canCommit || round.score === null || round.winningReply === null) {
+      throw new HttpError(400, 'This session has no recorded win');
+    }
+    const tokenCount = round.score;
+    const victoryMessage = round.winningReply;
 
     const [result] = await connection.execute(
       `INSERT INTO leaderboard
