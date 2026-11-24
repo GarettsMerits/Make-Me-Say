@@ -15,6 +15,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useGameStore, useUIStore } from '../store';
 import type { VictoryState } from '../store/types';
+import { winFlowPhase } from '../store/winFlowPhase';
 import { estimateTokenCount } from '../utils/tokenCounter';
 import { declineSession, fetchLeaderboardRank, submitScore } from '../utils/api';
 
@@ -67,9 +68,11 @@ export function useBottomBar({ onSubmit, onReset, rejectedDraft }: UseBottomBarP
    * The figure on screen. While a message can still be sent it is the token
    * preview, including this draft. From the win onward it is the locked score.
    */
-  const shownFigure = isWon
-    ? (lockedScore ?? sessionTokens)
-    : sessionTokens + (isLoading ? 0 : inputTokens);
+  const phase = winFlowPhase({ isWon, scoreSubmitted, victoryState });
+
+  const shownFigure = phase === 'playing'
+    ? sessionTokens + (isLoading ? 0 : inputTokens)
+    : (lockedScore ?? sessionTokens);
 
   /**
    * The place this token preview would take on this difficulty if the draft
@@ -78,7 +81,7 @@ export function useBottomBar({ onSubmit, onReset, rejectedDraft }: UseBottomBarP
   const [potentialPosition, setPotentialPosition] = useState<number | null>(null);
   useEffect(() => {
     const draftText = inputText.trim();
-    if (!draftText || isLoading || isWon || !difficulty) {
+    if (!draftText || isLoading || phase !== 'playing' || !difficulty) {
       setPotentialPosition(null);
       return;
     }
@@ -92,7 +95,7 @@ export function useBottomBar({ onSubmit, onReset, rejectedDraft }: UseBottomBarP
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [inputText, isLoading, isWon, difficulty, shownFigure]);
+  }, [inputText, isLoading, phase, difficulty, shownFigure]);
 
   const clearInput = useCallback(() => setDraft(''), [setDraft]);
 
@@ -196,7 +199,8 @@ export function useBottomBar({ onSubmit, onReset, rejectedDraft }: UseBottomBarP
     sessionTokens,
     shownFigure,
     potentialPosition,
-    scoreLocked: isWon,
+    scoreLocked: phase !== 'playing',
+    phase,
     targetWord,
     isLoading,
     isWon,

@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "node --import tsx --test src/domain/TargetWordMatcher.test.ts src/domain/PlayerScore.test.ts src/domain/LeaderboardRank.test.ts src/domain/Round.test.ts src/domain/BrowserSession.test.ts src/domain/InMemoryLeaderboard.test.ts src/auth/AccessToken.test.ts src/services/LineBuffer.test.ts src/services/SessionTurnGate.test.ts src/config/models.test.ts src/prompts/normalPrompt.test.ts src/services/ConversationRetention.test.ts src/db/SqlScript.test.ts src/sim/wordLines.test.ts",
+    "test": "node --import tsx --test src/domain/TargetWordMatcher.test.ts src/domain/PlayerScore.test.ts src/domain/LeaderboardRank.test.ts src/domain/Round.test.ts src/domain/StoredRound.test.ts src/domain/BrowserSession.test.ts src/domain/InMemoryLeaderboard.test.ts src/auth/AccessToken.test.ts src/services/LineBuffer.test.ts src/services/MysqlLeaderboard.test.ts src/services/SessionTurnGate.test.ts src/config/models.test.ts src/prompts/normalPrompt.test.ts src/services/ConversationRetention.test.ts src/services/conversationRetentionMysql.test.ts src/db/SqlScript.test.ts src/sim/wordLines.test.ts",
     "simulate": "node --import tsx scripts/simulateGame.ts"
   },
   "keywords": [],
