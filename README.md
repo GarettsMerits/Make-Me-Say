@@ -14,6 +14,20 @@ Detailed design lives in `Documentation/`:
 | [Development plan](Documentation/Development_and_Implementation_Plan.md) | What is built, what is not, and the original delivery plan |
 | [Issues](Documentation/Issues.md) | Unfinished work, bugs, design problems, and security findings |
 
+
+## Chat Window
+Recieve your target word...
+<img width="1859" height="2027" alt="image" src="https://github.com/user-attachments/assets/447e08f0-80ef-4c4f-a009-77dac8524d7d" />
+
+-and craft messages that will trip up the LLM!
+The less tokens you send the LLM before it says the target word, the better you score!
+<img width="1856" height="2029" alt="image" src="https://github.com/user-attachments/assets/0c0dbabf-d866-460b-aa03-c5e2d23ca32e" />
+
+## Leaderboard Integration
+See yours and rival scores for victorious matches at the leaderboard!
+<img width="1849" height="2032" alt="image" src="https://github.com/user-attachments/assets/09e97839-dad1-490f-9664-10c73334f868" />
+
+
 ---
 
 ## Features that work today
