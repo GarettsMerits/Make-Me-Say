@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useGameStore } from '../store';
 import { useUIStore } from '../store';
+import { winFlowPhase } from '../store/winFlowPhase';
 import { estimateTokenCount } from '../utils/tokenCounter';
 import { abandonSession, rerollWord, sendChatMessage, fetchLeaderboardRank, targetWordDeal } from '../utils/api';
 import type { Difficulty } from '../utils/api/types';
@@ -46,6 +47,7 @@ export const useChatLogic = () => {
     sessionId,
     setSessionId,
     setVictoryState,
+    victoryState,
     isWon,
     setIsWon,
     winningMessageId,
@@ -142,7 +144,8 @@ export const useChatLogic = () => {
    * 8. On `error` event → surface error to UI
    */
   const handleSubmit = async (messageText: string) => {
-    if (!messageText.trim() || isLoading || isWon) return;
+    const phase = winFlowPhase({ isWon, scoreSubmitted, victoryState });
+    if (!messageText.trim() || isLoading || phase !== 'playing') return;
 
     if (!sessionId && targetWordId === null) {
       setError('Still loading the target word — please wait a moment and try again.');
@@ -191,10 +194,10 @@ export const useChatLogic = () => {
           turnSettled = true;
           setIsLoading(false);
           if (gameOver) {
-            const winning = [...useGameStore.getState().messages]
-              .reverse()
-              .find((message) => message.sender === 'llm' && message.text);
-            if (winning) setWinningMessageId(winning.id);
+            // The reply that just finished. Not a scan of older messages, and not a win decision.
+            const onScreen = useGameStore.getState().messages;
+            const latest = onScreen[onScreen.length - 1];
+            if (latest?.sender === 'llm' && latest.text) setWinningMessageId(latest.id);
             const score = typeof playerTokens === 'number' ? playerTokens : sessionTokens;
             lockScore(score);
             if (typeof userTokenCount === 'number') setLastUserTokenCount(userTokenCount);

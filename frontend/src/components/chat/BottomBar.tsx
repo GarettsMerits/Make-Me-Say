@@ -48,7 +48,7 @@ export interface BottomBarProps {
 const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset, rejectedDraft }) => {
   const {
     inputText, setInputText, inputTokens, submitMessage,
-    shownFigure, potentialPosition, scoreLocked, isLoading, isWon, wonRank, rankUnavailable, scoreSubmitted,
+    shownFigure, potentialPosition, scoreLocked, isLoading, wonRank, rankUnavailable, phase,
     targetWord,
     victoryState, setVictoryState, handleScoreSubmit,
     pendingDialog,
@@ -56,8 +56,8 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset, rejectedDraft 
     confirmPending, cancelPending,
   } = useBottomBar({ onSubmit, onReset, rejectedDraft });
 
-  const showVictory = isWon && !scoreSubmitted;
-  const isGameOver  = isWon && scoreSubmitted;
+  const choosing = phase === 'awaiting-choice' || phase === 'declined';
+  const isGameOver = phase === 'committed';
 
   return (
     <>
@@ -65,7 +65,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset, rejectedDraft 
       <div className="bar-bottom shrink-0">
         <div className={getChatContainerClasses('py-4')} style={{ minHeight: BAR_BOTTOM.heightPx }}>
 
-          {showVictory ? (
+          {choosing ? (
             /* ── Victory flow ─────────────────────────────────────────────── */
             <AnimatePresence mode="wait">
               {victoryState === 'prompt' ? (
@@ -103,7 +103,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ onSubmit, onReset, rejectedDraft 
                 figure={shownFigure}
                 locked={scoreLocked}
                 potentialPosition={potentialPosition}
-                currentRank={scoreSubmitted ? wonRank : null}
+                currentRank={phase === 'committed' ? wonRank : null}
               />
               <form
                 onSubmit={(e) => { e.preventDefault(); submitMessage(); }}
